@@ -99,4 +99,6 @@ npm run dist        :: builds dist\Vibe-Route-Setup-<version>.exe
 
 ---
 
-Made by **JH Farhan** · [VibeCoder AI](https://vibecoderai.onrender.com) · © All rights reserved.
+Made by **JH Farhan** · [VibeCoder AI](https://vibecoderai.onrender.com)
+
+**License:** proprietary, all rights reserved — you may install and use the official app, but you may not modify, copy, rebrand or redistribute the code. See [LICENSE](LICENSE).
