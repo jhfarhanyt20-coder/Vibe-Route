@@ -1,0 +1,30 @@
+{
+  "port": 8787,
+  "defaultProvider": "go",
+  "defaultModel": "deepseek-v4.1-flash",
+  "providers": {
+    "go": {
+      "label": "OpenCode Go",
+      "baseUrl": "https://opencode.ai/inference/go/openai/v1",
+      "chatPath": "/chat/completions",
+      "modelsPath": "/models",
+      "keySource": "opencode-db",
+      "sessionHeader": "ses_vibe_route",
+      "userAgent": "vibe-route/1.0",
+      "maxTokens": 16384,
+      "enabled": true,
+      "models": [
+        "deepseek-v4.1-flash",
+        "glm-5.3",
+        "kimi-k3"
+      ],
+      "headers": {}
+    }
+  },
+  "aliases": {
+    "claude-sonnet-4-5": "go:deepseek-v4.1-flash",
+    "claude-sonnet-4-20250514": "go:deepseek-v4.1-flash",
+    "claude-3-5-sonnet-20241022": "go:deepseek-v4.1-flash",
+    "claude-opus-4-1": "go:glm-5.3"
+  }
+}

@@ -1,0 +1,17 @@
+# Your own settings and anything with keys: never in git.
+config.json
+*.key
+.env
+.env.*
+
+# Logs, usage and caches made while it runs.
+*.log
+usage.json
+models-cache.json
+model-meta.json
+
+# Build output and dependencies.
+node_modules/
+app/node_modules/
+app/assets/
+dist/

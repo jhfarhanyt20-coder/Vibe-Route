@@ -1,0 +1,70 @@
+name: Release Vibe Route
+
+# Runs on a version tag (v1.3.8, ...): safety check, build the installer, then
+# publish ONE release with the installer, its blockmap and latest.yml (what the
+# app's updater reads). Nothing is published if the safety check finds a key.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify tag matches app/package.json
+        run: |
+          $v = (Get-Content app/package.json -Raw | ConvertFrom-Json).version
+          if ("v$v" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match package.json version $v" }
+
+      - name: Safety check (no keys or tokens anywhere)
+        run: node scripts/check.cjs
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the installer (no upload)
+        working-directory: app
+        run: node build.cjs --publish never
+
+      - name: Check the installer carries no key
+        run: |
+          $cfg = Get-Content "dist/win-unpacked/resources/config.json" -Raw
+          if ($cfg -match '"apiKey"') { throw "The packed config contains an apiKey" }
+          node scripts/check.cjs
+
+      - name: Publish the release (installer, blockmap, latest.yml)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = (Get-Content app/package.json -Raw | ConvertFrom-Json).version
+          $files = @("dist/Vibe-Route-Setup-$v.exe", "dist/Vibe-Route-Setup-$v.exe.blockmap", "dist/latest.yml")
+          foreach ($f in $files) { if (-not (Test-Path $f)) { throw "Missing build output: $f" } }
+          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { gh release upload $env:GITHUB_REF_NAME @files --clobber --repo $env:GITHUB_REPOSITORY }
+          else { gh release create $env:GITHUB_REF_NAME @files --title "Vibe Route $v" --notes "Download **Vibe-Route-Setup-$v.exe** and run it. Installed copies update by themselves. See the README for what Vibe Route does." --verify-tag --repo $env:GITHUB_REPOSITORY }
+
+      - name: Verify the release has every asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = (Get-Content app/package.json -Raw | ConvertFrom-Json).version
+          $names = gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name'
+          foreach ($n in @("Vibe-Route-Setup-$v.exe", "Vibe-Route-Setup-$v.exe.blockmap", "latest.yml")) {
+            if (-not ($names -contains $n)) { throw "Release is missing $n" }
+          }
+          "All assets present: $($names -join ', ')"

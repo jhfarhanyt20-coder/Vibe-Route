@@ -1,0 +1,80 @@
+{
+  "name": "vibe-route",
+  "productName": "Vibe Route",
+  "version": "1.3.8",
+  "description": "Local AI gateway: one endpoint for many providers, OpenAI + Anthropic compatible",
+  "main": "main.js",
+  "private": true,
+  "author": "Farhan",
+  "scripts": {
+    "start": "electron .",
+    "dist": "node build.cjs",
+    "test": "node ../scripts/check.cjs"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.viberoute.app",
+    "productName": "Vibe Route",
+    "directories": {
+      "output": "../dist",
+      "buildResources": "."
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": ".",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "electronLanguages": [
+      "en-US"
+    ],
+    "compression": "normal",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "artifactName": "Vibe-Route-Setup-${version}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Vibe Route"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jhfarhanyt20-coder",
+        "repo": "Vibe-Route",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jhfarhanyt20-coder/Vibe-Route.git"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
+}

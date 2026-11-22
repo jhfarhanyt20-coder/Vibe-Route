@@ -1,0 +1,278 @@
+[
+  {
+    "id": "opencode-go",
+    "label": "OpenCode Go",
+    "baseUrl": "https://opencode.ai/inference/go/openai/v1",
+    "modelsPath": "/models",
+    "docs": "https://opencode.ai/v2/docs/console/go/",
+    "signup": "https://opencode.ai/console",
+    "auth": "bearer",
+    "keyless": false,
+    "keySource": "opencode-db",
+    "sessionHeader": "ses_vibe_route",
+    "free": {
+      "available": false,
+      "label": "Subscription",
+      "detail": "$10/mo Go · $40 Go Plus · monthly allowance shared across models",
+      "rate": "5-hour limit = 20% of monthly allowance"
+    },
+    "usage": "none",
+    "notes": "OpenCode app e login thakle key lage na (keySource: opencode-db)."
+  },
+  {
+    "id": "openrouter",
+    "label": "OpenRouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "modelsPath": "/models",
+    "docs": "https://openrouter.ai/docs",
+    "signup": "https://openrouter.ai/keys",
+    "auth": "bearer",
+    "keyless": false,
+    "headers": { "HTTP-Referer": "http://localhost", "X-Title": "Vibe Route" },
+    "free": {
+      "available": true,
+      "label": "Free models",
+      "detail": "Model id er sheshe :free (jemon deepseek/deepseek-chat:free). Free models er daily request limit.",
+      "rate": "Free: ~50 requests/day (account onujayi)"
+    },
+    "usage": "openrouter",
+    "notes": "Usage/credits live dekhano jay (/auth/key)."
+  },
+  {
+    "id": "groq",
+    "label": "Groq",
+    "baseUrl": "https://api.groq.com/openai/v1",
+    "modelsPath": "/models",
+    "docs": "https://console.groq.com/docs",
+    "signup": "https://console.groq.com/keys",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "label": "Free tier",
+      "detail": "Free tier with per-model requests/day + tokens/min limits. Very fast inference.",
+      "rate": "Per-model RPM/RPD (console e dekho)"
+    },
+    "usage": "none",
+    "notes": "Rate limit headers (x-ratelimit-*) response e ashe."
+  },
+  {
+    "id": "gemini",
+    "label": "Google Gemini",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "modelsPath": "/models",
+    "docs": "https://ai.google.dev/gemini-api/docs/openai",
+    "signup": "https://aistudio.google.com/apikey",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "label": "Free tier",
+      "detail": "Free API key e per-model RPM/RPD limit (Gemini Flash models).",
+      "rate": "Free: limited RPM/RPD per model"
+    },
+    "usage": "none",
+    "notes": "OpenAI-compatible endpoint: /v1beta/openai"
+  },
+  {
+    "id": "mistral",
+    "label": "Mistral AI",
+    "baseUrl": "https://api.mistral.ai/v1",
+    "modelsPath": "/models",
+    "docs": "https://docs.mistral.ai",
+    "signup": "https://console.mistral.ai/api-keys",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "label": "Experiment (free) tier",
+      "detail": "Free 'Experiment' plan e rate-limited access, phone verify lage.",
+      "rate": "1 req/sec · limited monthly tokens"
+    },
+    "usage": "none",
+    "notes": ""
+  },
+  {
+    "id": "deepseek",
+    "label": "DeepSeek",
+    "baseUrl": "https://api.deepseek.com/v1",
+    "modelsPath": "/models",
+    "docs": "https://api-docs.deepseek.com",
+    "signup": "https://platform.deepseek.com/api_keys",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": false,
+      "label": "Paid (cheap)",
+      "detail": "Pay as you go, very low token price. Signup e maje maje bonus credit.",
+      "rate": "No hard free tier"
+    },
+    "usage": "none",
+    "notes": ""
+  },
+  {
+    "id": "together",
+    "label": "Together AI",
+    "baseUrl": "https://api.together.xyz/v1",
+    "modelsPath": "/models",
+    "docs": "https://docs.together.ai",
+    "signup": "https://api.together.ai/settings/api-keys",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "label": "Free endpoints + credit",
+      "detail": "Kichhu model (Llama/Qwen) free endpoints e cholе; signup credit o dey.",
+      "rate": "Free endpoints rate-limited"
+    },
+    "usage": "none",
+    "notes": ""
+  },
+  {
+    "id": "cerebras",
+    "label": "Cerebras",
+    "baseUrl": "https://api.cerebras.ai/v1",
+    "modelsPath": "/models",
+    "docs": "https://inference-docs.cerebras.ai",
+    "signup": "https://cloud.cerebras.ai",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "label": "Free tier",
+      "detail": "Free tier: ~1M tokens/day (model onujayi), extremely fast.",
+      "rate": "Free: daily token cap"
+    },
+    "usage": "none",
+    "notes": ""
+  },
+  {
+    "id": "nvidia",
+    "label": "NVIDIA NIM",
+    "baseUrl": "https://integrate.api.nvidia.com/v1",
+    "modelsPath": "/models",
+    "docs": "https://docs.api.nvidia.com",
+    "signup": "https://build.nvidia.com",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "label": "Free credits",
+      "detail": "Free API credits on signup for hosted NIM models (Llama, Nemotron, etc).",
+      "rate": "Credit based"
+    },
+    "usage": "none",
+    "notes": "Model id prefix dey (meta/llama-3.3-70b-instruct)"
+  },
+  {
+    "id": "github-models",
+    "label": "GitHub Models",
+    "baseUrl": "https://models.github.ai/inference",
+    "modelsPath": "/models",
+    "docs": "https://docs.github.com/en/github-models",
+    "signup": "https://github.com/settings/tokens",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "label": "Free with GitHub",
+      "detail": "GitHub PAT diye free rate-limited access (GPT, Llama, Phi, Mistral...)",
+      "rate": "Per-model requests/min + day"
+    },
+    "usage": "none",
+    "notes": "Fine-grained PAT e 'Models: read' permission dao. Model id: openai/gpt-4o-mini type."
+  },
+  {
+    "id": "fireworks",
+    "label": "Fireworks AI",
+    "baseUrl": "https://api.fireworks.ai/inference/v1",
+    "modelsPath": "/models",
+    "docs": "https://docs.fireworks.ai",
+    "signup": "https://fireworks.ai/account/api-keys",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "label": "Signup credit",
+      "detail": "Notun account e free credit ($1 level).",
+      "rate": "Credit based"
+    },
+    "usage": "none",
+    "notes": "Model id: accounts/fireworks/models/<name>"
+  },
+  {
+    "id": "ollama",
+    "label": "Ollama (local)",
+    "baseUrl": "http://127.0.0.1:11434/v1",
+    "modelsPath": "/models",
+    "docs": "https://github.com/ollama/ollama/blob/main/docs/openai.md",
+    "signup": "https://ollama.com/download",
+    "auth": "none",
+    "keyless": true,
+    "free": {
+      "available": true,
+      "label": "Free / local",
+      "detail": "Own PC te cholе, kono limit nei (hardware onujayi).",
+      "rate": "Unlimited (local)"
+    },
+    "usage": "none",
+    "notes": "ollama serve chalu thakte hobe."
+  },
+  {
+    "id": "lmstudio",
+    "label": "LM Studio (local)",
+    "baseUrl": "http://127.0.0.1:1234/v1",
+    "modelsPath": "/models",
+    "docs": "https://lmstudio.ai/docs/app/api",
+    "signup": "https://lmstudio.ai",
+    "auth": "none",
+    "keyless": true,
+    "free": {
+      "available": true,
+      "label": "Free / local",
+      "detail": "Local server, kono cost nei.",
+      "rate": "Unlimited (local)"
+    },
+    "usage": "none",
+    "notes": "LM Studio te server start koro (port 1234)."
+  },
+  {
+    "id": "vercel",
+    "label": "Vercel AI Gateway",
+    "baseUrl": "https://ai-gateway.vercel.sh/v1",
+    "modelsPath": "/models",
+    "docs": "https://vercel.com/docs/ai-gateway",
+    "signup": "https://vercel.com/dashboard/ai-gateway/api-keys",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "zeroOnly": true,
+      "label": "Free models + monthly credit",
+      "detail": "Zero-price -free model gulo key diye free; sathe monthly free credit (payment method lagte pare).",
+      "rate": "Free tier e per-model rate limit"
+    },
+    "usage": "none",
+    "notes": "Base URL: https://ai-gateway.vercel.sh/v1. Free model id gulo -free suffix e hoy."
+  },
+  {
+    "id": "kilo",
+    "label": "Kilo Gateway",
+    "baseUrl": "https://ai-gateway.kilo.ai/api/v1",
+    "modelsPath": "/models",
+    "docs": "https://kilo.ai/docs/gateway",
+    "signup": "https://kilo.ai",
+    "auth": "bearer",
+    "keyless": false,
+    "free": {
+      "available": true,
+      "zeroOnly": true,
+      "anonymous": true,
+      "label": "Free models",
+      "detail": "Model id er sheshe :free / -free gulo zero-cost. Key chara o free model chole (200 req/hour), key dile beshi.",
+      "rate": "Anonymous: 200 req/hour; key e per-account limit"
+    },
+    "usage": "none",
+    "notes": "Base URL: https://ai-gateway.kilo.ai/api/v1. kilo-auto/free ekta free router."
+  }
+]

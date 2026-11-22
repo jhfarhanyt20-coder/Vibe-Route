@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vibe Route</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0b0f16; --line:#1e2a38; --line-2:#27374a;
+    --fg:#e8eef6; --fg-dim:#8ea0b5;
+    --accent:#3ddc84; --accent-dim:#1f6f43;
+    --warn:#e3b341; --err:#ff7b72; --info:#58a6ff; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1200px 600px at 15% -10%, #12202c 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 0%, #16281f 0%, transparent 55%),
+      var(--bg);
+    color:var(--fg);font:14px/1.55 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  /* title bar */
+  .titlebar{position:sticky;top:0;z-index:50;height:46px;display:flex;align-items:center;gap:10px;
+    padding:0 8px 0 14px;background:rgba(9,13,20,.78);backdrop-filter:blur(14px) saturate(140%);
+    border-bottom:1px solid var(--line);-webkit-app-region:drag;user-select:none}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.2px}
+  .mark{width:20px;height:20px}
+  .brand small{color:var(--fg-dim);font-weight:500;letter-spacing:.3px}
+  .tb-spacer{flex:1}
+  .tb-status{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--fg-dim);
+    background:#0e1721;border:1px solid var(--line);border-radius:999px;padding:4px 11px}
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,220,132,.45)}70%{box-shadow:0 0 0 7px rgba(61,220,132,0)}100%{box-shadow:0 0 0 0 rgba(61,220,132,0)}}
+  .tb-btns{display:flex;-webkit-app-region:no-drag}
+  .tb-btns button{width:42px;height:32px;border:0;border-radius:8px;background:transparent;color:#b9c7d6;font-size:14px;cursor:default}
+  .tb-btns button:hover{background:#1b2634;color:#fff}
+  .tb-btns button.close:hover{background:#c0392b;color:#fff}
+  body.no-chrome .tb-btns{display:none}
+  /* layout */
+  .wrap{max-width:1120px;margin:0 auto;padding:22px 24px 60px}
+  .hero{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:6px 0 18px}
+  .hero h1{font-size:22px;margin:0;font-weight:650;letter-spacing:-.2px}
+  .hero p{margin:4px 0 0;color:var(--fg-dim);font-size:13px}
+  h2{font-size:11px;margin:0 0 12px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.14em;font-weight:600}
+  .card{background:linear-gradient(180deg,rgba(23,33,46,.72),rgba(15,22,32,.72));border:1px solid var(--line);
+    border-radius:var(--radius);padding:18px;margin:16px 0;box-shadow:0 14px 34px -24px #000}
+  details.card>summary{cursor:pointer;list-style:none;font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.14em;font-weight:600}
+  details.card>summary::-webkit-details-marker{display:none}
+  details.card>summary:before{content:"▸ ";color:var(--accent)}
+  details.card[open]>summary:before{content:"▾ "}
+  details.card[open]>summary{margin-bottom:12px}
+  code,pre,input,select,button{font-family:"Cascadia Code",ui-monospace,Consolas,monospace;font-size:13px}
+  pre{background:#080d13;border:1px solid var(--line);border-radius:10px;padding:13px 14px;overflow:auto;margin:0;color:#cfe3f5;line-height:1.65}
+  .muted{color:var(--fg-dim)}
+  a{color:var(--info);cursor:pointer;text-decoration:none}
+  a:hover{text-decoration:underline}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .field{flex:1 1 220px;display:flex;flex-direction:column;gap:5px}
+  label{font-size:10.5px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.09em;font-weight:600}
+  input,select{padding:9px 11px;border-radius:9px;border:1px solid var(--line-2);background:#0a1119;color:var(--fg);outline:none}
+  input:focus,select:focus{border-color:var(--accent-dim);box-shadow:0 0 0 3px rgba(61,220,132,.12)}
+  input::placeholder{color:#56687d}
+  button{padding:9px 15px;border-radius:9px;border:1px solid var(--line-2);background:#16202c;color:var(--fg);cursor:pointer}
+  button:hover{background:#1d2a38;border-color:#33475d}
+  button.primary{background:linear-gradient(180deg,#2fbe74,#249458);border-color:#2fbe74;color:#05130c;font-weight:650}
+  button.danger{border-color:#5a2a2a;color:#ff9d95;background:#1d1414}
+  .pill,.badge{display:inline-block;border-radius:999px;padding:2px 9px;font-size:11.5px;border:1px solid var(--line-2);background:#131d28;color:#b9c9da}
+  .badge.ok{border-color:#225c3a;background:#0d2419;color:#6ee7a0}
+  .badge.warn{border-color:#5e4713;background:#211a08;color:#e3b341}
+  .badge.off{opacity:.55}
+  .pill{background:#10202e;border-color:#20455f;color:#9fd0ff}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{position:sticky;top:0;background:#0c141d;text-align:left;padding:9px 10px;color:var(--fg-dim);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--line)}
+  td{padding:8px 10px;border-bottom:1px solid #14202c}
+  tbody tr:hover{background:#101b26}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;color:#b9c9da}
+  td.id{font-family:"Cascadia Code",ui-monospace,Consolas,monospace;font-size:12.5px;color:#d7e7f7}
+  .prov{border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin:9px 0;background:#0b131c}
+  .prov.compact{padding:10px 12px;margin:7px 0}
+  .prov.off{opacity:.5}
+  .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .msg{margin-top:9px;font-size:12.5px;min-height:18px}
+  .msg.err{color:var(--err)}.msg.ok{color:var(--accent)}
+  .usage{margin-top:9px;font-size:12px}
+  .ubar{height:7px;border-radius:6px;background:#16222f;overflow:hidden;margin-top:6px}
+  .ubar span{display:block;height:100%;background:linear-gradient(90deg,#2fbe74,#3ddc84)}
+  .hint{font-size:11.5px;color:var(--fg-dim);margin-top:6px;line-height:1.45}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#22303f;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 24 24" fill="none">
+      <circle cx="6" cy="6" r="2.6" fill="#3ddc84"/><circle cx="18" cy="12" r="2.6" fill="#3ddc84"/><circle cx="6" cy="18" r="2.6" fill="#3ddc84"/>
+      <path d="M8.3 7 15.6 11M15.6 13 8.3 17" stroke="#3ddc84" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <span>Vibe Route</span><small>gateway</small>
+  </div>
+  <div class="tb-spacer"></div>
+  <div class="tb-status"><span class="pulse"></span><span id="tbStatus">starting…</span></div>
+  <div class="tb-btns">
+    <button id="btnMin" title="Minimize">&#8211;</button>
+    <button id="btnMax" title="Maximize">&#9633;</button>
+    <button id="btnClose" class="close" title="Hide to tray">&#10005;</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="hero">
+    <div><h1>Local AI gateway</h1><p id="sub">loading…</p></div>
+    <div class="row"><button onclick="load(true)">Reload</button></div>
+  </div>
+
+  <div class="card">
+    <h2>Connect your clients</h2>
+    <pre id="claudeCfg">…</pre>
+    <div class="row" style="margin-top:12px">
+      <div class="field"><label>default model</label><select id="defModel"></select></div>
+      <div class="field" style="flex:0 0 auto;justify-content:flex-end"><button class="primary" onclick="saveDefault()">Save default</button></div>
+    </div>
+    <div class="msg" id="defMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>1 · Provider</h2>
+    <div class="row">
+      <div class="field" style="flex:1 1 360px">
+        <label>select provider</label>
+        <select id="presetSelect" onchange="pickProvider(this.value)"></select>
+      </div>
+      <div class="field" style="flex:0 0 auto;justify-content:flex-end">
+        <button onclick="resetForm()">Clear</button>
+      </div>
+    </div>
+    <div class="hint" id="opencodeStatus"></div>
+    <div class="hint" id="presetNote"></div>
+
+    <div class="row" style="margin-top:12px">
+      <div class="field"><label>provider name (id)</label><input id="pId" placeholder="openrouter"></div>
+      <div class="field"><label>display label</label><input id="pLabel" placeholder="OpenRouter"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field" style="flex:2 1 340px"><label>base url</label><input id="pBase" placeholder="https://openrouter.ai/api/v1"></div>
+      <div class="field" style="flex:2 1 340px"><label>api key</label><input id="pKey" placeholder="paste key (blank = keep existing)"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field"><label>models path (optional)</label><input id="pModelsPath" placeholder="/models"></div>
+      <div class="field" style="flex:2 1 340px"><label>extra header (optional)</label><input id="pSession" placeholder="x-opencode-session: ses_abc"></div>
+    </div>
+    <div class="row" style="margin-top:13px;align-items:center">
+      <button class="primary" onclick="saveProvider()">Save provider</button>
+      <label style="display:flex;align-items:center;gap:7px;text-transform:none;letter-spacing:0;font-size:12px;color:var(--fg-dim)">
+        <input type="checkbox" id="pEnabled" checked> enabled
+      </label>
+    </div>
+    <div class="msg" id="formMsg"></div>
+  </div>
+
+  <div class="card" id="selectedCard">
+    <h2>2 · Selected provider models</h2>
+    <div class="top" id="selHead"></div>
+    <div class="row" id="selActions" style="margin:10px 0 12px"></div>
+    <div style="max-height:380px;overflow:auto;border:1px solid var(--line);border-radius:10px">
+      <table>
+        <thead><tr><th>model</th><th>free</th><th style="text-align:right">context</th><th style="text-align:right">max out</th><th>vision</th><th>tools</th><th></th></tr></thead>
+        <tbody id="selRows"></tbody>
+      </table>
+    </div>
+    <div class="hint" id="selHint"></div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Add a model manually</h2>
+    <div class="row">
+      <div class="field"><label>provider</label><select id="mProvider"></select></div>
+      <div class="field" style="flex:2 1 320px"><label>model name / id</label><input id="mName" placeholder="deepseek-v4.1-flash"></div>
+      <div class="field" style="flex:0 0 auto;justify-content:flex-end"><button class="primary" onclick="addModel()">Add + fetch info</button></div>
+    </div>
+    <div class="hint">নাম লিখে Add করলে provider থেকে context / vision / tools info নিজেই fetch হবে।</div>
+    <div class="msg" id="modelMsg"></div>
+  </div>
+
+  <details class="card">
+    <summary>All saved providers (<span id="provCount">0</span>)</summary>
+    <div id="providers"></div>
+  </details>
+
+  <div class="card">
+    <h2>My models (<span id="modelCount">0</span>)</h2>
+    <div style="max-height:440px;overflow:auto;border:1px solid var(--line);border-radius:10px">
+      <table><thead><tr><th>provider</th><th>model</th><th style="text-align:right">context</th><th style="text-align:right">max out</th><th>vision</th><th>tools</th><th></th></tr></thead>
+      <tbody id="modelRows"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+let STATE = null, PRESETS = [], OPENCODE = null;
+let PICKED_PRESET = null, SELECTED_PROVIDER = null, PROVIDER_MSG = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+const fmt = (n) => n == null ? "-" : n >= 1e6 ? (n/1e6).toFixed(n % 1e6 ? 1 : 0) + "M" : n >= 1000 ? Math.round(n/1000) + "k" : String(n);
+
+const chrome = window.vibeRoute;
+if (!chrome) document.body.classList.add("no-chrome");
+else {
+  $("btnMin").onclick = () => chrome.minimize();
+  $("btnMax").onclick = () => chrome.toggleMax();
+  $("btnClose").onclick = () => chrome.close();
+  document.querySelector(".titlebar").addEventListener("dblclick", (e) => {
+    if (!e.target.closest(".tb-btns")) chrome.toggleMax();
+  });
+}
+
+const api = async (path, opts) => (await fetch(path, Object.assign({ headers: { "content-type": "application/json" } }, opts))).json();
+
+function msgBox(id, html) {
+  const a = document.getElementById("usage-" + id);
+  if (a) a.innerHTML = html;
+  if (SELECTED_PROVIDER === id) {
+    PROVIDER_MSG = { id, html };
+    const b = document.getElementById("selHint");
+    if (b) b.innerHTML = html;
+  }
+}
+
+async function load(force) {
+  const [state, cat, oc] = await Promise.all([
+    api("/api/state" + (force ? "?refresh=1" : "")),
+    PRESETS.length ? Promise.resolve({ presets: PRESETS }) : api("/api/catalog"),
+    api("/api/opencode").catch(() => null),
+  ]);
+  STATE = state; PRESETS = cat.presets || PRESETS; OPENCODE = oc;
+  if (!SELECTED_PROVIDER && state.defaultProvider) SELECTED_PROVIDER = state.defaultProvider;
+  const selectedSaved = state.providers.find(x => x.id === SELECTED_PROVIDER);
+  if (selectedSaved) fillProviderForm(selectedSaved);
+  render();
+}
+
+function render() {
+  const s = STATE;
+  $("tbStatus").textContent = `:${s.port} · ${s.providers.filter(p => p.enabled).length} providers`;
+  $("sub").innerHTML = `${s.models.length} model(s) · ${s.providers.filter(p => p.enabled).length} provider(s) connected · <a onclick="load(true)">reload</a>`;
+
+  $("claudeCfg").textContent =
+`# OpenAI clients / SDKs
+OPENAI_BASE_URL=http://127.0.0.1:${s.port}/v1
+OPENAI_API_KEY=dummy
+model = auto          <- free models + automatic fallback
+
+# Claude Code / Claude Dev (Anthropic format)
+ANTHROPIC_BASE_URL=http://127.0.0.1:${s.port}
+ANTHROPIC_AUTH_TOKEN=dummy
+ANTHROPIC_MODEL=auto   (or any model below)`;
+
+  $("defModel").innerHTML = s.models.map(m => `<option value="${esc(m.aliasId)}"${m.aliasId === s.defaultModel ? " selected" : ""}>${esc(m.aliasId)}</option>`).join("")
+    || '<option value="">no models yet</option>';
+
+  const savedIds = s.providers.map(p => p.id);
+  const savedOpts = s.providers.map(p =>
+    `<option value="${esc(p.id)}">${esc(p.label)} (${esc(p.id)})${p.enabled ? "" : " — disabled"}</option>`).join("");
+  const newOpts = PRESETS.filter(p => !savedIds.includes(p.id)).map(p =>
+    `<option value="${esc(p.id)}">${esc(p.label)} — ${esc(p.baseUrl)}</option>`).join("");
+  $("presetSelect").innerHTML = '<option value="">— select provider —</option>' +
+    (savedOpts ? `<optgroup label="Saved providers">${savedOpts}</optgroup>` : "") +
+    (newOpts ? `<optgroup label="Add a new provider">${newOpts}</optgroup>` : "");
+  const wantPreset = SELECTED_PROVIDER || PICKED_PRESET || "";
+  $("presetSelect").value = wantPreset;
+
+  const oc = OPENCODE || {};
+  if (oc.detected && oc.models > 0) {
+    $("opencodeStatus").innerHTML = `<span class="badge ok">OpenCode Go detected</span>
+      ${oc.provider
+        ? `login auto use hocche — provider <b>${esc(oc.provider)}</b> (${oc.models} models). <button onclick="syncOpencode()">Sync models</button>`
+        : "login found — provider auto add hocche…"}
+      ${oc.integrationId ? `<span class="muted">(${esc(oc.integrationId)})</span>` : ""}`;
+  } else if (oc.detected) {
+    $("opencodeStatus").innerHTML = `<span class="badge warn">OpenCode login found</span>
+      Go model পাওয়া যায়নি। free model শুধু OpenCode app-এর ভিতরে চলে —
+      বাইরের app-এর জন্য Go subscribe অথবা Kilo/Vercel free model ব্যবহার করো।`;
+  } else if (oc.installed) {
+    $("opencodeStatus").innerHTML = `<span class="badge warn">OpenCode installed</span>
+      kintu login nei — OpenCode app e login koro, tarpor Vibe Route restart dao.`;
+  } else {
+    $("opencodeStatus").innerHTML = `<span class="badge off">OpenCode not found</span>
+      — nicher provider theke API key dilei cholbe.`;
+  }
+
+  $("mProvider").innerHTML = s.providers.filter(p => p.enabled).map(p =>
+    `<option value="${esc(p.id)}">${esc(p.label)} (${esc(p.id)})</option>`).join("") || '<option value="">no provider</option>';
+  if (SELECTED_PROVIDER && s.providers.some(p => p.id === SELECTED_PROVIDER && p.enabled)) {
+    $("mProvider").value = SELECTED_PROVIDER;
+  }
+
+  $("provCount").textContent = s.providers.length;
+  $("providers").innerHTML = s.providers.length ? s.providers.map(p => {
+    const f = p.preset && p.preset.free;
+    const docs = p.preset && p.preset.docs ? `<a href="${esc(p.preset.docs)}" target="_blank">docs</a>` : "";
+    return `<div class="prov compact ${p.enabled ? "" : "off"}">
+      <div class="top">
+        <div>
+          <strong>${esc(p.label)}</strong> <span class="pill">${esc(p.id)}</span>
+          ${p.id === s.defaultProvider ? '<span class="badge ok">default</span>' : ""}
+          ${p.enabled ? "" : '<span class="badge off">disabled</span>'}
+          <span class="badge ok">${p.modelCount} models</span>
+          ${f ? (f.available === false ? '<span class="badge warn">paid</span>' : '<span class="badge ok">free tier</span>') : ""}
+        </div>
+        <div class="row">
+          <button onclick="selectProvider('${esc(p.id)}')">Models</button>
+          <button onclick="editProvider('${esc(p.id)}')">Edit</button>
+          <button class="danger" onclick="delProvider('${esc(p.id)}')">Delete</button>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:5px;font-size:12px">
+        ${esc(p.baseUrl)} · key: ${esc(p.keySource)}${p.apiKeyMasked ? " (" + esc(p.apiKeyMasked) + ")" : ""} ${docs}
+      </div>
+      ${f ? `<div class="hint" style="margin-top:3px"><b>${esc(f.label)}</b> — ${esc(f.detail)}</div>` : ""}
+      <div id="usage-${esc(p.id)}"></div>
+    </div>`;
+  }).join("") : '<div class="muted">no providers yet</div>';
+
+  renderSelected();
+
+  $("modelCount").textContent = s.models.length;
+  $("modelRows").innerHTML = s.models.length ? s.models.map(m => `<tr>
+    <td><span class="pill">${esc(m.provider)}</span>${m.free ? ' <span class="badge ok">free</span>' : ""}${m.isAlias ? ' <span class="badge">alias</span>' : ""}${m.isAuto ? ' <span class="badge ok">fallback</span>' : ""}</td>
+    <td class="id">${esc(m.aliasId)}</td>
+    <td class="num">${m.isAuto ? "auto" : fmt(m.contextWindow)}</td>
+    <td class="num">${m.isAuto ? "-" : fmt(m.maxOutput)}</td>
+    <td>${m.isAuto ? "-" : (m.vision === null ? "?" : (m.vision ? "yes" : "-"))}</td>
+    <td>${m.isAuto ? "-" : (m.tools === null ? "?" : (m.tools ? "yes" : "-"))}</td>
+    <td>${m.isAlias || m.isAuto ? "" : `<button class="danger" onclick="removeModel('${esc(m.provider)}','${esc(m.id)}')">remove</button>`}</td>
+  </tr>`).join("") : '<tr><td colspan="7" class="muted">no models — add one above</td></tr>';
+}
+
+function renderSelected() {
+  const p = SELECTED_PROVIDER ? STATE.providers.find(x => x.id === SELECTED_PROVIDER) : null;
+  if (!p) {
+    $("selHead").innerHTML = '<span class="muted">কোনো provider select করা নেই — উপরের dropdown থেকে বেছে নাও।</span>';
+    $("selActions").innerHTML = "";
+    $("selRows").innerHTML = '<tr><td colspan="7" class="muted">select a provider above</td></tr>';
+    $("selHint").textContent = "";
+    return;
+  }
+  const models = (p.models || []).slice().sort((a, b) => Number(b.free) - Number(a.free));
+  const freeCount = models.filter(m => m.free).length;
+  const f = p.preset && p.preset.free;
+  const usageBtn = p.preset && p.preset.usage !== "none"
+    ? `<button onclick="checkUsage('${esc(p.id)}')">Check usage</button>` : "";
+  $("selHead").innerHTML = `<div>
+    <strong>${esc(p.label)}</strong> <span class="pill">${esc(p.id)}</span>
+    ${p.enabled ? "" : '<span class="badge off">disabled</span>'}
+    <span class="badge ok">${models.length} models</span>
+    ${freeCount ? `<span class="badge ok">${freeCount} free</span>` : ""}
+    ${f ? (f.available === false ? '<span class="badge warn">paid</span>' : '<span class="badge ok">free tier</span>') : ""}
+  </div>`;
+  $("selActions").innerHTML = `
+    <button class="primary" onclick="addAll('${esc(p.id)}')">Add all models</button>
+    ${f && f.available ? `<button onclick="autoFree('${esc(p.id)}')">Add free models</button>` : ""}
+    <button onclick="testProvider('${esc(p.id)}')">Test key</button>
+    ${usageBtn}
+    <button onclick="editProvider('${esc(p.id)}')">Edit</button>
+    <button class="danger" onclick="delProvider('${esc(p.id)}')">Delete</button>`;
+  $("selRows").innerHTML = models.length ? models.map(m => `<tr>
+    <td class="id">${esc(m.id)}</td>
+    <td>${m.free ? '<span class="badge ok">free</span>' : ""}</td>
+    <td class="num">${fmt(m.context)}</td>
+    <td class="num">${fmt(m.output)}</td>
+    <td>${m.vision == null ? "?" : (m.vision ? "yes" : "-")}</td>
+    <td>${m.tools == null ? "?" : (m.tools ? "yes" : "-")}</td>
+    <td><button class="danger" onclick="removeModel('${esc(p.id)}','${esc(m.id)}')">remove</button></td>
+  </tr>`).join("") : '<tr><td colspan="7" class="muted">no models yet — Add all / Add free / manual add</td></tr>';
+  const flash = PROVIDER_MSG && PROVIDER_MSG.id === p.id ? PROVIDER_MSG.html : "";
+  $("selHint").innerHTML = `${flash}${esc(p.baseUrl)} · key: ${esc(p.keySource)}${p.apiKeyMasked ? " (" + esc(p.apiKeyMasked) + ")" : ""}`;
+}
+
+function selectProvider(id) {
+  SELECTED_PROVIDER = id;
+  PICKED_PRESET = null;
+  render();
+  document.getElementById("selectedCard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function pickProvider(id) {
+  if (!id) return;
+  const saved = STATE.providers.find(x => x.id === id);
+  if (saved) { editProvider(id); return; }
+  pickPreset(id);
+}
+
+function pickPreset(id) {
+  const p = PRESETS.find(x => x.id === id);
+  if (!p) return;
+  const saved = STATE.providers.find(x => x.id === id);
+  PICKED_PRESET = id;
+  SELECTED_PROVIDER = id;
+  $("pId").value = p.id;
+  $("pLabel").value = p.label;
+  $("pBase").value = p.baseUrl;
+  $("pModelsPath").value = (p.modelsPath && p.modelsPath !== "/models") ? p.modelsPath : "";
+  $("pSession").value = (saved && saved.sessionHeader) || (p.sessionHeader ? "x-opencode-session: " + p.sessionHeader : "");
+  $("pKey").value = "";
+  $("pKey").placeholder = saved
+    ? "blank = keep existing " + (saved.apiKeyMasked || saved.keySource)
+    : (p.keyless ? "not needed (local)" : "paste your " + p.label + " key");
+  $("pEnabled").checked = saved ? saved.enabled : true;
+  $("presetNote").innerHTML = p.free
+    ? `<b>${esc(p.free.label)}</b> — ${esc(p.free.detail)} &nbsp; <a href="${esc(p.signup)}" target="_blank">get key</a>`
+    : "";
+  render();
+  $("pKey").focus();
+}
+
+function resetForm() {
+  PICKED_PRESET = null;
+  SELECTED_PROVIDER = null;
+  ["pId","pLabel","pBase","pKey","pModelsPath","pSession"].forEach(id => $(id).value = "");
+  $("pKey").placeholder = "paste key (blank = keep existing)";
+  $("pEnabled").checked = true;
+  $("formMsg").textContent = "";
+  $("presetNote").textContent = "";
+  $("presetSelect").value = "";
+  render();
+}
+
+function fillProviderForm(p) {
+  if (!p) return;
+  PICKED_PRESET = null;
+  $("pId").value = p.id;
+  $("pLabel").value = p.label;
+  $("pBase").value = p.baseUrl;
+  $("pKey").value = "";
+  $("pKey").placeholder = "blank = keep existing " + (p.apiKeyMasked || p.keySource);
+  $("pModelsPath").value = p.modelsPath === "/models" ? "" : p.modelsPath;
+  $("pSession").value = p.sessionHeader ? "x-opencode-session: " + p.sessionHeader : "";
+  $("pEnabled").checked = p.enabled;
+  $("presetNote").textContent = "";
+}
+
+function editProvider(id) {
+  const p = STATE.providers.find(x => x.id === id);
+  if (!p) return;
+  SELECTED_PROVIDER = id;
+  fillProviderForm(p);
+  $("formMsg").textContent = "";
+  render();
+  $("presetSelect").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+async function saveProvider() {
+  const session = $("pSession").value.trim();
+  const body = {
+    id: $("pId").value.trim(),
+    label: $("pLabel").value.trim() || $("pId").value.trim(),
+    baseUrl: $("pBase").value.trim(),
+    apiKey: $("pKey").value.trim(),
+    enabled: $("pEnabled").checked,
+  };
+  if (session) body.sessionHeader = session.includes(":") ? session.split(":").slice(1).join(":").trim() : session;
+  if ($("pModelsPath").value.trim()) body.modelsPath = $("pModelsPath").value.trim();
+
+  // Carry preset defaults (OpenRouter headers, opencode-db key source, ...).
+  const preset = PRESETS.find(x => x.id === PICKED_PRESET);
+  if (preset) {
+    if (preset.headers && Object.keys(preset.headers).length) body.headers = preset.headers;
+    if (preset.keySource) body.keySource = preset.keySource;
+    if (!body.sessionHeader && preset.sessionHeader) body.sessionHeader = preset.sessionHeader;
+  }
+
+  if (!body.id || !body.baseUrl) { $("formMsg").className = "msg err"; $("formMsg").textContent = "provider name আর base url লাগবে"; return; }
+  $("formMsg").className = "msg";  $("formMsg").textContent = "saving…";
+  const r = await api("/api/providers", { method: "POST", body: JSON.stringify(body) });
+  $("formMsg").className = r.ok ? "msg ok" : "msg err";
+  $("formMsg").textContent = r.ok ? "saved ✓" : (r.error || "failed");
+  if (r.ok) {
+    SELECTED_PROVIDER = body.id;
+    PICKED_PRESET = PRESETS.some(x => x.id === body.id) ? body.id : null;
+    await load(true);
+    // Free models load automatically only when an API key is saved.
+    if (r.hasKey) {
+      $("formMsg").textContent = "saved ✓ — loading free models…";
+      await autoFree(body.id, true);
+    }
+  }
+}
+
+async function syncOpencode() {
+  const id = OPENCODE && OPENCODE.provider;
+  if (!id) return;
+  const box = $("opencodeStatus");
+  if (box) box.innerHTML = '<span class="badge">syncing models…</span>';
+  const r = await api("/api/models/all", { method: "POST", body: JSON.stringify({ provider: id }) });
+  if (box && !r.ok) box.innerHTML = `<span class="badge warn">sync failed</span> ${esc(r.error || "")}`;
+  await load(true);
+}
+
+async function addAll(id, silent) {
+  const prov = STATE && STATE.providers.find(x => x.id === id);
+  const label = prov ? prov.label : id;
+  if (!silent && !confirm(`Add every model that ${label} lists? (max 100, OpenRouter only :free)`)) return;
+  msgBox(id, '<div class="usage muted">fetching model list…</div>');
+  const r = await api("/api/models/all", { method: "POST", body: JSON.stringify({ provider: id, freeOnly: Boolean(silent) }) });
+  msgBox(id, r.ok
+    ? `<div class="usage" style="color:var(--accent)">+${r.added} model(s) added (provider listed ${r.total})${r.error ? " · " + esc(r.error) : ""}</div>`
+    : `<div class="usage" style="color:var(--err)">${esc(r.error || "failed")}</div>`);
+  if (silent && r.ok) {
+    $("formMsg").textContent = r.added
+      ? `saved ✓ — ${r.added} model(s) added automatically`
+      : "saved ✓ — now add a model in step 3";
+  }
+  await load();
+}
+
+async function addModel() {
+  const provider = $("mProvider").value;
+  const model = $("mName").value.trim();
+  if (!provider || !model) { $("modelMsg").className = "msg err"; $("modelMsg").textContent = "provider আর model নাম লাগবে"; return; }
+  $("modelMsg").className = "msg"; $("modelMsg").textContent = "contacting provider…";
+  const r = await api("/api/models/add", { method: "POST", body: JSON.stringify({ provider, model }) });
+  if (!r.ok) { $("modelMsg").className = "msg err"; $("modelMsg").textContent = r.error || "failed"; return; }
+  const m = r.meta || {};
+  if (m.found) {
+    $("modelMsg").className = "msg ok";
+    $("modelMsg").innerHTML = `added <b>${esc(model)}</b> — context <b>${fmt(m.context)}</b>, max out <b>${fmt(m.output)}</b>, vision ${m.vision ? "yes" : "no"}, tools ${m.tools ? "yes" : "no"}`;
+  } else {
+    $("modelMsg").className = "msg err";
+    $("modelMsg").textContent = `added, but the provider did not list "${model}" (${r.error || "unknown id"}). It may still work if the id is correct.`;
+  }
+  $("mName").value = "";
+  SELECTED_PROVIDER = provider;
+  await load();
+}
+
+async function autoFree(id, silent) {
+  msgBox(id, '<div class="usage muted">fetching free models…</div>');
+  const r = await api("/api/models/autofree", { method: "POST", body: JSON.stringify({ provider: id }) });
+  msgBox(id, r.ok
+    ? `<div class="usage" style="color:var(--accent)">+${r.added} free model(s) added (provider listed ${r.total})${r.error ? " · " + esc(r.error) : ""}</div>`
+    : `<div class="usage" style="color:var(--err)">${esc(r.error || "failed")}</div>`);
+  if (silent) {
+    $("formMsg").className = r.ok ? "msg ok" : "msg err";
+    $("formMsg").textContent = r.ok
+      ? (r.added ? `saved ✓ — ${r.added} free model(s) added automatically` : "saved ✓ — no free model found; use “Add all models” or add one manually")
+      : (r.error || "free model fetch failed");
+  }
+  await load();
+}
+
+async function removeModel(provider, model) {
+  if (!confirm(`Remove ${model} from ${provider}?`)) return;
+  await api("/api/models/remove", { method: "POST", body: JSON.stringify({ provider, model }) });
+  await load();
+}
+
+async function delProvider(id) {
+  if (!confirm("Delete provider " + id + " and its models?")) return;
+  await api("/api/providers/" + encodeURIComponent(id), { method: "DELETE" });
+  if (SELECTED_PROVIDER === id) SELECTED_PROVIDER = null;
+  await load(true);
+}
+
+async function testProvider(id) {
+  const p = STATE && STATE.providers.find(x => x.id === id);
+  msgBox(id, '<div class="usage muted">testing provider…</div>');
+  const r = await api("/api/providers/test", {
+    method: "POST",
+    body: JSON.stringify({ id, baseUrl: p ? p.baseUrl : undefined, modelsPath: p ? p.modelsPath : undefined }),
+  });
+  msgBox(id, r.ok
+    ? `<div class="usage" style="color:var(--accent)">key works · provider lists ${r.count} model(s)</div>`
+    : `<div class="usage" style="color:var(--err)">${esc(r.error || "failed")}</div>`);
+}
+
+async function checkUsage(id) {
+  msgBox(id, '<div class="usage muted">checking…</div>');
+  const u = await api("/api/usage?id=" + encodeURIComponent(id));
+  if (!u.supported) {
+    msgBox(id, `<div class="usage muted">Usage API নেই — এই provider public usage endpoint দেয় না।${u.freeTier ? " Free tier: " + esc(u.freeTier.detail) : ""}</div>`);
+    return;
+  }
+  if (!u.ok) { msgBox(id, `<div class="usage muted">usage failed: ${esc(u.error || "")}</div>`); return; }
+  const limit = u.limit, used = u.used, left = u.remaining;
+  const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
+  msgBox(id, `<div class="usage">
+      <b>${esc(u.label)}</b> · used <b>${used == null ? "?" : "$" + Number(used).toFixed(4)}</b>
+      ${limit == null ? "(no hard limit)" : `of $${Number(limit).toFixed(2)}`}
+      · left <b>${left == null ? "unlimited" : "$" + Number(left).toFixed(4)}</b>
+      ${u.isFreeTier ? '<span class="badge warn">free tier</span>' : ""}
+      ${pct != null ? `<div class="ubar"><span style="width:${pct}%"></span></div>` : ""}
+    </div>`);
+}
+
+async function saveDefault() {
+  const model = $("defModel").value;
+  const m = STATE.models.find(x => x.aliasId === model);
+  const r = await api("/api/default", { method: "POST", body: JSON.stringify({ provider: m ? m.provider : undefined, model }) });
+  $("defMsg").className = r.ok ? "msg ok" : "msg err";
+  $("defMsg").textContent = r.ok ? "saved ✓" : (r.error || "failed");
+  await load();
+}
+
+load();
+</script>
+</body>
+</html>
