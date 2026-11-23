@@ -76,8 +76,17 @@ function normalizeModel(m) {
   };
 }
 
+// models-cache.json is read on the request path (model routing), so keep the
+// parsed file in memory for a short time instead of reading it every request.
+const FILE_TTL_MS = 30 * 1000;
+let fileMemo = null;
+let fileMemoAt = 0;
+
 function readCacheFile() {
-  try { return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8")) || {}; } catch { return {}; }
+  if (fileMemo && Date.now() - fileMemoAt < FILE_TTL_MS) return fileMemo;
+  try { fileMemo = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8")) || {}; } catch { fileMemo = {}; }
+  fileMemoAt = Date.now();
+  return fileMemo;
 }
 
 function readCache(pid) {
@@ -88,9 +97,12 @@ function readCache(pid) {
 }
 
 function writeCache(pid, data) {
-  const all = readCacheFile();
+  fileMemo = null; // re-read the file before merging
+  const all = Object.assign({}, readCacheFile());
   all[pid] = data;
   try { fs.writeFileSync(CACHE_FILE, JSON.stringify(all, null, 2), "utf8"); } catch {}
+  fileMemo = all;
+  fileMemoAt = Date.now();
 }
 
 async function fetchModels(pid, provider, key) {

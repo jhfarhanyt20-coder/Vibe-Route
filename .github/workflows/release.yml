@@ -7,21 +7,29 @@ on:
   push:
     tags: ["v*"]
 
+# Least privilege: read-only by default; only the release job (which publishes)
+# gets write access to repository contents.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     runs-on: windows-latest
+    permissions:
+      contents: write
     defaults:
       run:
         shell: pwsh
     steps:
+      # persist-credentials: false - the token is not left in .git/config for the
+      # build steps; publishing uses GH_TOKEN with the gh CLI, not git.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -32,6 +40,11 @@ jobs:
 
       - name: Safety check (no keys or tokens anywhere)
         run: node scripts/check.cjs
+
+      - name: Gateway and security tests
+        run: |
+          node scripts/test-gateway.cjs
+          node scripts/test-security.cjs
 
       - name: Install dependencies
         working-directory: app

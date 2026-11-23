@@ -37,12 +37,19 @@ try {
   const srcCfg = fs.existsSync(own) ? own : path.join(ROOT, "config.example.json");
   if (fs.existsSync(srcCfg)) {
     const cfg = JSON.parse(fs.readFileSync(srcCfg, "utf8"));
+    // Keys can also sit in custom headers (Authorization, x-api-key, ...).
+    const SECRET_HEADER = /authorization|api[-_]?key|token|secret|cookie|password/i;
     for (const p of Object.values(cfg.providers || {})) {
-      if (p && typeof p === "object") delete p.apiKey;
+      if (!p || typeof p !== "object") continue;
+      delete p.apiKey;
+      if (p.headers && typeof p.headers === "object") {
+        for (const h of Object.keys(p.headers)) if (SECRET_HEADER.test(h)) delete p.headers[h];
+      }
     }
     fs.writeFileSync(path.join(ASSETS, "config.json"), JSON.stringify(cfg, null, 2), "utf8");
     console.log("packed config.json (api keys stripped) from " + path.basename(srcCfg));
     if (JSON.stringify(cfg).includes("apiKey")) throw new Error("an apiKey is still in the packed config");
+    if (/"(authorization|x-api-key|api-key)"\s*:/i.test(JSON.stringify(cfg))) throw new Error("an auth header is still in the packed config");
   }
 } catch (e) {
   console.warn("could not pack config.json: " + e.message);

@@ -178,7 +178,7 @@
       <div class="field" style="flex:2 1 320px"><label>model name / id</label><input id="mName" placeholder="deepseek-v4.1-flash"></div>
       <div class="field" style="flex:0 0 auto;justify-content:flex-end"><button class="primary" onclick="addModel()">Add + fetch info</button></div>
     </div>
-    <div class="hint">নাম লিখে Add করলে provider থেকে context / vision / tools info নিজেই fetch হবে।</div>
+    <div class="hint">Type a model name and press Add: its context, vision and tool support are loaded from the provider automatically.</div>
     <div class="msg" id="modelMsg"></div>
   </div>
 
@@ -214,7 +214,14 @@ else {
   });
 }
 
-const api = async (path, opts) => (await fetch(path, Object.assign({ headers: { "content-type": "application/json" } }, opts))).json();
+// The gateway puts a per-run token in this page; every dashboard API call sends it.
+// Other web pages cannot read it, so they cannot use the dashboard API.
+const VR_TOKEN = (document.querySelector('meta[name="vibe-route-token"]') || {}).content || "";
+const api = async (path, opts) => {
+  const o = Object.assign({}, opts || {});
+  o.headers = Object.assign({ "content-type": "application/json", "x-vibe-route-token": VR_TOKEN }, o.headers || {});
+  return (await fetch(path, o)).json();
+};
 
 function msgBox(id, html) {
   const a = document.getElementById("usage-" + id);
@@ -273,19 +280,19 @@ ANTHROPIC_MODEL=auto   (or any model below)`;
   if (oc.detected && oc.models > 0) {
     $("opencodeStatus").innerHTML = `<span class="badge ok">OpenCode Go detected</span>
       ${oc.provider
-        ? `login auto use hocche — provider <b>${esc(oc.provider)}</b> (${oc.models} models). <button onclick="syncOpencode()">Sync models</button>`
-        : "login found — provider auto add hocche…"}
+        ? `signed in, used automatically — provider <b>${esc(oc.provider)}</b> (${oc.models} models). <button onclick="syncOpencode()">Sync models</button>`
+        : "sign-in found — adding the provider…"}
       ${oc.integrationId ? `<span class="muted">(${esc(oc.integrationId)})</span>` : ""}`;
   } else if (oc.detected) {
     $("opencodeStatus").innerHTML = `<span class="badge warn">OpenCode login found</span>
-      Go model পাওয়া যায়নি। free model শুধু OpenCode app-এর ভিতরে চলে —
-      বাইরের app-এর জন্য Go subscribe অথবা Kilo/Vercel free model ব্যবহার করো।`;
+      No Go models found. OpenCode's free models only work inside the OpenCode app —
+      for other apps, subscribe to Go or use the Kilo / Vercel free models.`;
   } else if (oc.installed) {
     $("opencodeStatus").innerHTML = `<span class="badge warn">OpenCode installed</span>
-      kintu login nei — OpenCode app e login koro, tarpor Vibe Route restart dao.`;
+      but not signed in — sign in to the OpenCode app, then restart Vibe Route.`;
   } else {
     $("opencodeStatus").innerHTML = `<span class="badge off">OpenCode not found</span>
-      — nicher provider theke API key dilei cholbe.`;
+      — add a provider below with its API key to get started.`;
   }
 
   $("mProvider").innerHTML = s.providers.filter(p => p.enabled).map(p =>
@@ -308,9 +315,9 @@ ANTHROPIC_MODEL=auto   (or any model below)`;
           ${f ? (f.available === false ? '<span class="badge warn">paid</span>' : '<span class="badge ok">free tier</span>') : ""}
         </div>
         <div class="row">
-          <button onclick="selectProvider('${esc(p.id)}')">Models</button>
-          <button onclick="editProvider('${esc(p.id)}')">Edit</button>
-          <button class="danger" onclick="delProvider('${esc(p.id)}')">Delete</button>
+          <button data-act="selectProvider" data-a="${esc(p.id)}">Models</button>
+          <button data-act="editProvider" data-a="${esc(p.id)}">Edit</button>
+          <button class="danger" data-act="delProvider" data-a="${esc(p.id)}">Delete</button>
         </div>
       </div>
       <div class="muted" style="margin-top:5px;font-size:12px">
@@ -331,14 +338,14 @@ ANTHROPIC_MODEL=auto   (or any model below)`;
     <td class="num">${m.isAuto ? "-" : fmt(m.maxOutput)}</td>
     <td>${m.isAuto ? "-" : (m.vision === null ? "?" : (m.vision ? "yes" : "-"))}</td>
     <td>${m.isAuto ? "-" : (m.tools === null ? "?" : (m.tools ? "yes" : "-"))}</td>
-    <td>${m.isAlias || m.isAuto ? "" : `<button class="danger" onclick="removeModel('${esc(m.provider)}','${esc(m.id)}')">remove</button>`}</td>
+    <td>${m.isAlias || m.isAuto ? "" : `<button class="danger" data-act="removeModel" data-a="${esc(m.provider)}" data-b="${esc(m.id)}">remove</button>`}</td>
   </tr>`).join("") : '<tr><td colspan="7" class="muted">no models — add one above</td></tr>';
 }
 
 function renderSelected() {
   const p = SELECTED_PROVIDER ? STATE.providers.find(x => x.id === SELECTED_PROVIDER) : null;
   if (!p) {
-    $("selHead").innerHTML = '<span class="muted">কোনো provider select করা নেই — উপরের dropdown থেকে বেছে নাও।</span>';
+    $("selHead").innerHTML = '<span class="muted">No provider selected — choose one from the dropdown above.</span>';
     $("selActions").innerHTML = "";
     $("selRows").innerHTML = '<tr><td colspan="7" class="muted">select a provider above</td></tr>';
     $("selHint").textContent = "";
@@ -348,7 +355,7 @@ function renderSelected() {
   const freeCount = models.filter(m => m.free).length;
   const f = p.preset && p.preset.free;
   const usageBtn = p.preset && p.preset.usage !== "none"
-    ? `<button onclick="checkUsage('${esc(p.id)}')">Check usage</button>` : "";
+    ? `<button data-act="checkUsage" data-a="${esc(p.id)}">Check usage</button>` : "";
   $("selHead").innerHTML = `<div>
     <strong>${esc(p.label)}</strong> <span class="pill">${esc(p.id)}</span>
     ${p.enabled ? "" : '<span class="badge off">disabled</span>'}
@@ -357,12 +364,12 @@ function renderSelected() {
     ${f ? (f.available === false ? '<span class="badge warn">paid</span>' : '<span class="badge ok">free tier</span>') : ""}
   </div>`;
   $("selActions").innerHTML = `
-    <button class="primary" onclick="addAll('${esc(p.id)}')">Add all models</button>
-    ${f && f.available ? `<button onclick="autoFree('${esc(p.id)}')">Add free models</button>` : ""}
-    <button onclick="testProvider('${esc(p.id)}')">Test key</button>
+    <button class="primary" data-act="addAll" data-a="${esc(p.id)}">Add all models</button>
+    ${f && f.available ? `<button data-act="autoFree" data-a="${esc(p.id)}">Add free models</button>` : ""}
+    <button data-act="testProvider" data-a="${esc(p.id)}">Test key</button>
     ${usageBtn}
-    <button onclick="editProvider('${esc(p.id)}')">Edit</button>
-    <button class="danger" onclick="delProvider('${esc(p.id)}')">Delete</button>`;
+    <button data-act="editProvider" data-a="${esc(p.id)}">Edit</button>
+    <button class="danger" data-act="delProvider" data-a="${esc(p.id)}">Delete</button>`;
   $("selRows").innerHTML = models.length ? models.map(m => `<tr>
     <td class="id">${esc(m.id)}</td>
     <td>${m.free ? '<span class="badge ok">free</span>' : ""}</td>
@@ -370,7 +377,7 @@ function renderSelected() {
     <td class="num">${fmt(m.output)}</td>
     <td>${m.vision == null ? "?" : (m.vision ? "yes" : "-")}</td>
     <td>${m.tools == null ? "?" : (m.tools ? "yes" : "-")}</td>
-    <td><button class="danger" onclick="removeModel('${esc(p.id)}','${esc(m.id)}')">remove</button></td>
+    <td><button class="danger" data-act="removeModel" data-a="${esc(p.id)}" data-b="${esc(m.id)}">remove</button></td>
   </tr>`).join("") : '<tr><td colspan="7" class="muted">no models yet — Add all / Add free / manual add</td></tr>';
   const flash = PROVIDER_MSG && PROVIDER_MSG.id === p.id ? PROVIDER_MSG.html : "";
   $("selHint").innerHTML = `${flash}${esc(p.baseUrl)} · key: ${esc(p.keySource)}${p.apiKeyMasked ? " (" + esc(p.apiKeyMasked) + ")" : ""}`;
@@ -469,7 +476,7 @@ async function saveProvider() {
     if (!body.sessionHeader && preset.sessionHeader) body.sessionHeader = preset.sessionHeader;
   }
 
-  if (!body.id || !body.baseUrl) { $("formMsg").className = "msg err"; $("formMsg").textContent = "provider name আর base url লাগবে"; return; }
+  if (!body.id || !body.baseUrl) { $("formMsg").className = "msg err"; $("formMsg").textContent = "Enter a provider name and a base URL"; return; }
   $("formMsg").className = "msg";  $("formMsg").textContent = "saving…";
   const r = await api("/api/providers", { method: "POST", body: JSON.stringify(body) });
   $("formMsg").className = r.ok ? "msg ok" : "msg err";
@@ -516,7 +523,7 @@ async function addAll(id, silent) {
 async function addModel() {
   const provider = $("mProvider").value;
   const model = $("mName").value.trim();
-  if (!provider || !model) { $("modelMsg").className = "msg err"; $("modelMsg").textContent = "provider আর model নাম লাগবে"; return; }
+  if (!provider || !model) { $("modelMsg").className = "msg err"; $("modelMsg").textContent = "Choose a provider and enter a model name"; return; }
   $("modelMsg").className = "msg"; $("modelMsg").textContent = "contacting provider…";
   const r = await api("/api/models/add", { method: "POST", body: JSON.stringify({ provider, model }) });
   if (!r.ok) { $("modelMsg").className = "msg err"; $("modelMsg").textContent = r.error || "failed"; return; }
@@ -577,7 +584,7 @@ async function checkUsage(id) {
   msgBox(id, '<div class="usage muted">checking…</div>');
   const u = await api("/api/usage?id=" + encodeURIComponent(id));
   if (!u.supported) {
-    msgBox(id, `<div class="usage muted">Usage API নেই — এই provider public usage endpoint দেয় না।${u.freeTier ? " Free tier: " + esc(u.freeTier.detail) : ""}</div>`);
+    msgBox(id, `<div class="usage muted">No usage API — this provider does not offer a public usage endpoint.${u.freeTier ? " Free tier: " + esc(u.freeTier.detail) : ""}</div>`);
     return;
   }
   if (!u.ok) { msgBox(id, `<div class="usage muted">usage failed: ${esc(u.error || "")}</div>`); return; }
@@ -602,6 +609,18 @@ async function saveDefault() {
 }
 
 load();
+
+// Buttons that act on a provider or model carry its id in data-* attributes
+// (never inside onclick JavaScript), and only these actions can be triggered.
+const ACTIONS = { selectProvider, editProvider, delProvider, removeModel, checkUsage, addAll, autoFree, testProvider };
+document.addEventListener("click", (ev) => {
+  const el = ev.target && ev.target.closest ? ev.target.closest("[data-act]") : null;
+  if (!el) return;
+  const fn = Object.prototype.hasOwnProperty.call(ACTIONS, el.dataset.act) ? ACTIONS[el.dataset.act] : null;
+  if (!fn) return;
+  ev.preventDefault();
+  fn(el.dataset.a, el.dataset.b);
+});
 </script>
 </body>
 </html>

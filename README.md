@@ -73,7 +73,7 @@ Open it from the tray (**Edit config.json**). Each provider needs a base URL, a 
 }
 ```
 
-Other options: `timeoutMs`, `exposeCatalogModels` (list a provider's full catalog instead of only the models you added), `autoDetectOpencode`, `autoSyncOpencode`. If port 8787 is busy, change `port` and the base URL in your apps.
+Other options: `timeoutMs`, `firstByteTimeoutMs` / `idleTimeoutMs` (give up when a provider sends nothing at the start or stops mid-answer), `nonStreamTimeoutMs`, `allowedOrigins` (extra web origins you trust to call the gateway; empty by default), `exposeCatalogModels` (list a provider's full catalog instead of only the models you added), `autoDetectOpencode`, `autoSyncOpencode`. If port 8787 is busy, change `port` and the base URL in your apps.
 
 ## Troubleshooting
 
@@ -87,13 +87,18 @@ Other options: `timeoutMs`, `exposeCatalogModels` (list a provider's full catalo
 - Keys are stored only in your local `config.json` (in the app's data folder) and are sent only to the provider they belong to.
 - The installer and this repository contain no keys; a safety check (`scripts/check.cjs`) scans every release and stops it if something looks like a key or token.
 - The gateway listens on `127.0.0.1` only, so other computers cannot use it.
+- Web pages cannot use it: requests sent by a browser page from another site (or a renamed host, "DNS rebinding") are refused, and no CORS headers are sent. Apps such as Claude Code, Cline or an SDK are not web pages and keep working.
+- The dashboard API (`/api/*`) needs a random token that changes on every start and only the dashboard page knows, so another program or page cannot read or change your providers.
+- A saved key is only ever sent to that provider's saved address. Testing a provider against a new address does not send the saved key, and moving a provider to a new address forgets its old key.
+- Keys are shown only as their last 4 characters, and an upstream error that echoes a key is cleaned before it reaches your app or the log.
+- The desktop window is sandboxed, cannot open other sites inside the app, and opens outside links in your normal browser.
 
 ## Build from source
 
 ```bat
 cd app
 npm ci
-npm test            :: safety check
+npm test            :: safety check, gateway and security tests
 npm run dist        :: builds dist\Vibe-Route-Setup-<version>.exe
 ```
 

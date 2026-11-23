@@ -147,11 +147,51 @@ function usageSummary() {
   return { days, rows: Object.values(totals).sort((a, b) => b.requests - a.requests) };
 }
 
-function addCors(res) {
-  res.setHeader("access-control-allow-origin", "*");
-  res.setHeader("access-control-allow-headers", "*");
-  res.setHeader("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
-  res.setHeader("access-control-expose-headers", "*");
+// ------------------------------------------------------------------ request guard
+// The gateway listens on 127.0.0.1 only, but the user's own browser can still
+// reach 127.0.0.1. So:
+// - Host must be this machine on this port: a DNS-rebinding page arrives with
+//   its own host name and is refused.
+// - A request that comes from a web page (it carries an Origin / Sec-Fetch-Site
+//   header) is refused unless it is the dashboard itself. Claude Code, Cline,
+//   SDKs and curl send no Origin and keep working with any API key ("dummy").
+// - No CORS headers are sent, so other sites cannot read any response.
+// - The dashboard API (/api/*) also needs a random per-run token that the
+//   gateway writes into the dashboard page; other sites cannot read that page.
+const crypto = require("node:crypto");
+const DASHBOARD_TOKEN = crypto.randomBytes(24).toString("hex");
+const localHosts = () => new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
+const ownOrigins = () => new Set([`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`, `http://[::1]:${PORT}`]);
+
+/** Returns an error text when the request must be refused, else "". */
+function guardRequest(req, pathname) {
+  const host = String(req.headers.host || "").toLowerCase();
+  if (!localHosts().has(host)) return "this gateway only answers requests addressed to 127.0.0.1 or localhost";
+  const origin = req.headers.origin;
+  const extra = Array.isArray(cfg && cfg.allowedOrigins) ? cfg.allowedOrigins.map(String) : [];
+  const fromPage = origin !== undefined || /cross-site|same-site/i.test(String(req.headers["sec-fetch-site"] || ""));
+  const ownPage = origin !== undefined && (ownOrigins().has(String(origin).toLowerCase()) || extra.includes(String(origin)));
+  if (fromPage && !ownPage) return "requests from web pages are not allowed";
+  if (pathname.startsWith("/api/")) {
+    const sent = String(req.headers["x-vibe-route-token"] || "");
+    const ok = sent.length === DASHBOARD_TOKEN.length && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(DASHBOARD_TOKEN));
+    if (!ok) return "the dashboard API needs the dashboard's token (open the dashboard from the Vibe Route app or http://127.0.0.1:" + PORT + ")";
+  }
+  return "";
+}
+
+/** The dashboard page, with this run's token for its API calls. */
+function withDashboardToken(html) {
+  const meta = `<meta name="vibe-route-token" content="${DASHBOARD_TOKEN}">`;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + "\n" + meta) : meta + html;
+}
+
+/** Upstream error text can echo a key back: hide anything key-shaped before a client sees it. */
+function redactSecrets(text) {
+  return String(text == null ? "" : text)
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [hidden]")
+    .replace(/\b(sk-(?:or-v1-|ant-|proj-)?|gsk_|AIza|gh[pousr]_|github_pat_|xox[abpr]-|glpat-|hf_|npm_|r8_|xai-)[A-Za-z0-9_-]{8,}/g, "$1[hidden]")
+    .replace(/("?(?:api[_-]?key|x-api-key|access_token|authorization|token|secret)"?\s*[:=]\s*"?)[^"\s,}&]{8,}/gi, "$1[hidden]");
 }
 
 // ------------------------------------------------------------------ logging
@@ -304,7 +344,7 @@ function opencodeProviderId() {
 }
 
 function opencodeStatus() {
-  const info = findOpencodeCredential();
+  const info = rawCfg.autoDetectOpencode === false ? { detected: false, installed: false, disabled: true } : findOpencodeCredential();
   const pid = opencodeProviderId();
   const pr = pid ? cfg.providers[pid] : null;
   const modelCount = pr ? (pr.models || []).length : 0;
@@ -326,7 +366,8 @@ function opencodeStatus() {
 // If OpenCode is installed and logged in but Vibe Route has no provider using
 // it yet, add one automatically. The token stays in OpenCode's own DB.
 function ensureOpencodeAutoProvider() {
-  if (rawCfg.autoDetectOpencode === false) return { pid: null, created: false, empty: false, info: findOpencodeCredential() };
+  // Turned off: do not even read OpenCode's token files.
+  if (rawCfg.autoDetectOpencode === false) return { pid: null, created: false, empty: false, info: { detected: false, installed: false, disabled: true } };
   const info = findOpencodeCredential();
   const existing = opencodeProviderId();
   if (existing) {
@@ -441,6 +482,7 @@ function parseTarget(t) {
 
 // Plain model id (no provider prefix) -> find the provider that owns it.
 // This makes clients that send display names / strip the prefix still work.
+// The models-cache.json lookup is served from memory (short TTL in catalog.cjs).
 function findProviderForModel(model) {
   const ids = enabledProviders();
   const dp = cfg.defaultProvider;
@@ -455,7 +497,9 @@ function findProviderForModel(model) {
   return null;
 }
 
-function resolveModel(requested) {
+const claudeRouteLogged = new Set();
+
+function resolveModel(requested, depth) {
   if (!requested) return { provider: cfg.defaultProvider, model: cfg.defaultModel, alias: null };
   let current = String(requested);
   const seen = new Set();
@@ -470,12 +514,26 @@ function resolveModel(requested) {
 
   const explicit = /^([A-Za-z0-9_-]+)[:/](.+)$/.exec(current);
   if (explicit && cfg.providers[explicit[1]]) {
+    // An exact model id wins over a provider prefix: "openai/gpt-4o" stays one
+    // id when a provider lists it under that full name.
+    const exactOwner = findProviderForModel(current);
+    if (exactOwner) return { provider: exactOwner, model: current, alias };
     return { provider: explicit[1], model: explicit[2], alias };
   }
   // Not a known provider prefix (model ids may themselves contain "/", e.g.
   // "humansand/ampersand-v0.1"). Find the provider that owns the full id.
   const owner = findProviderForModel(current);
   if (owner) return { provider: owner, model: current, alias };
+  // Anthropic clients send their own model names (Claude Code uses a small
+  // claude-* model for background calls). Nobody owns it: use the default model.
+  if (!depth && /^claude-/i.test(current) && cfg.defaultModel && cfg.defaultModel !== current) {
+    const def = resolveModel(cfg.defaultModel, 1);
+    if (!claudeRouteLogged.has(current)) {
+      claudeRouteLogged.add(current);
+      log(`model ${current} is not configured - routing it to the default model ${def.provider}:${def.model}`);
+    }
+    return { provider: def.provider, model: def.model, alias: alias || current };
+  }
   return { provider: cfg.defaultProvider, model: current, alias };
 }
 
@@ -493,32 +551,43 @@ async function loadCatalogs(force) {
 }
 
 // ------------------------------------------------------------- request convert
-function blocksToText(content) {
+function blocksToText(content, sep) {
   if (typeof content === "string") return content;
-  if (Array.isArray(content)) return content.filter((b) => b && b.type === "text").map((b) => b.text || "").join("");
+  if (Array.isArray(content)) {
+    return content.filter((b) => b && b.type === "text" && b.text).map((b) => b.text).join(sep == null ? "\n\n" : sep);
+  }
   return "";
 }
 
 // tool_result content may be a string, an object, or an array of blocks
 // (text + images). OpenAI tool messages only take text, so flatten it.
 function toolResultText(c) {
-  if (c == null) return "";
-  if (typeof c === "string") return c;
-  if (Array.isArray(c)) {
-    return c.map((b) => {
-      if (!b) return "";
-      if (typeof b === "string") return b;
-      if (b.type === "text") return b.text || "";
-      if (b.type === "image") return "[image attached]";
-      if (b.type === "document") return "[document attached]";
-      try { return JSON.stringify(b); } catch { return ""; }
-    }).filter(Boolean).join("\n");
-  }
-  if (typeof c === "object") {
-    if (c.type === "text") return c.text || "";
-    try { return JSON.stringify(c); } catch { return String(c); }
-  }
-  return String(c);
+  return toolResultContent(c).text;
+}
+
+// Same as toolResultText, but also returns the images so they can be sent in
+// a user message right after the tool messages.
+function toolResultContent(c) {
+  const images = [];
+  const one = (b) => {
+    if (!b) return "";
+    if (typeof b === "string") return b;
+    if (typeof b !== "object") return String(b);
+    if (b.type === "text") return b.text || "";
+    if (b.type === "image") {
+      const part = imagePart(b);
+      if (part) images.push(part);
+      return "[image attached]";
+    }
+    if (b.type === "document") return "[document attached]";
+    try { return JSON.stringify(b); } catch { return ""; }
+  };
+  let text;
+  if (c == null) text = "";
+  else if (typeof c === "string") text = c;
+  else if (Array.isArray(c)) text = c.map(one).filter(Boolean).join("\n");
+  else text = one(c);
+  return { text, images };
 }
 
 function imagePart(block) {
@@ -533,9 +602,45 @@ function imagePart(block) {
   return null;
 }
 
-function toOpenAI(body, pid) {
+function isMarked(b) {
+  return Boolean(b && typeof b === "object" && b.cache_control && typeof b.cache_control === "object");
+}
+
+function hasCacheControl(body) {
+  if (Array.isArray(body.system) && body.system.some(isMarked)) return true;
+  if (Array.isArray(body.tools) && body.tools.some(isMarked)) return true;
+  for (const m of Array.isArray(body.messages) ? body.messages : []) {
+    if (m && Array.isArray(m.content) && m.content.some(isMarked)) return true;
+  }
+  return false;
+}
+
+// Anthropic thinking budget -> OpenAI reasoning_effort.
+function reasoningEffortFor(thinking) {
+  if (!thinking || typeof thinking !== "object") return null;
+  if (thinking.type !== "enabled" && thinking.type !== "adaptive") return null;
+  const budget = Number(thinking.budget_tokens) || 0;
+  if (!budget) return thinking.type === "adaptive" ? "medium" : "low";
+  if (budget <= 4096) return "low";
+  if (budget <= 16384) return "medium";
+  return "high";
+}
+
+// opts.model           upstream model id (filled into the payload)
+// opts.cacheMarks      false = never forward cache_control
+// opts.reasoningField  "reasoning_content" | "reasoning" | null: send assistant
+//                      thinking back under this field (the upstream used it)
+function toOpenAI(body, pid, opts) {
+  opts = opts || {};
   const p = cfg.providers[pid] || {};
   const messages = [];
+  const marks = opts.cacheMarks !== false && hasCacheControl(body);
+  let placedMarks = false;
+  const textPart = (b) => {
+    const part = { type: "text", text: b.text };
+    if (marks && isMarked(b)) { part.cache_control = Object.assign({}, b.cache_control); placedMarks = true; }
+    return part;
+  };
 
   // Merge adjacent plain text messages of the same role. Some providers
   // (Gemini, Mistral) reject consecutive user turns, and it is harmless.
@@ -544,7 +649,7 @@ function toOpenAI(body, pid) {
     const last = messages[messages.length - 1];
     if (last && last.role === m.role && m.role !== "tool" &&
         typeof last.content === "string" && typeof m.content === "string" &&
-        !last.tool_calls && !m.tool_calls) {
+        Object.keys(last).length === 2 && Object.keys(m).length === 2) {
       last.content = last.content ? last.content + "\n\n" + m.content : m.content;
       return;
     }
@@ -552,12 +657,24 @@ function toOpenAI(body, pid) {
   };
 
   if (body.system) {
-    const sys = typeof body.system === "string" ? body.system : blocksToText(body.system);
-    if (sys && sys.trim()) messages.push({ role: "system", content: sys });
+    if (typeof body.system === "string") {
+      if (body.system.trim()) messages.push({ role: "system", content: body.system });
+    } else if (Array.isArray(body.system)) {
+      const blocks = body.system.filter((b) => b && b.type === "text" && b.text);
+      if (marks && blocks.some(isMarked)) {
+        // Keep the blocks as parts so each cache_control mark stays on its text.
+        messages.push({ role: "system", content: blocks.map(textPart) });
+      } else {
+        const sys = blocksToText(blocks);
+        if (sys && sys.trim()) messages.push({ role: "system", content: sys });
+      }
+    }
   }
 
-  for (const m of body.messages || []) {
-    if (!m) continue;
+  const list = Array.isArray(body.messages) ? body.messages : [];
+  for (let mi = 0; mi < list.length; mi += 1) {
+    const m = list[mi];
+    if (!m || typeof m !== "object") continue;
 
     if (m.role === "system" || m.role === "developer") {
       const s = typeof m.content === "string" ? m.content : blocksToText(m.content);
@@ -574,56 +691,75 @@ function toOpenAI(body, pid) {
     const blocks = Array.isArray(m.content) ? m.content : [];
 
     if (m.role === "assistant") {
-      const textParts = [];
+      const textBlocks = [];
       const toolCalls = [];
-      for (const b of blocks) {
+      const thinking = [];
+      for (let bi = 0; bi < blocks.length; bi += 1) {
+        const b = blocks[bi];
         if (!b) continue;
-        if (b.type === "text" && b.text) textParts.push(b.text);
+        if (b.type === "text" && b.text) textBlocks.push(b);
         else if (b.type === "tool_use") {
           toolCalls.push({
-            id: b.id || "call_" + Math.random().toString(36).slice(2, 12),
+            // Deterministic id keeps the request prefix stable for caching.
+            id: b.id || "call_" + mi + "_" + bi,
             type: "function",
             function: { name: b.name || "tool", arguments: JSON.stringify(b.input || {}) },
           });
+        } else if (b.type === "thinking" && typeof b.thinking === "string" && b.thinking) {
+          thinking.push(b.thinking);
         }
-        // thinking / redacted_thinking / server_tool_use are not portable.
+        // redacted_thinking / server_tool_use are not portable.
       }
-      const text = textParts.join("");
+      const text = textBlocks.map((b) => b.text).join("");
       // OpenAI rejects an assistant message with null content and no tool calls.
       if (!text && !toolCalls.length) continue;
-      const msg = { role: "assistant", content: text || null };
+      let content = text || null;
+      if (marks && textBlocks.some(isMarked)) content = textBlocks.map(textPart);
+      const msg = { role: "assistant", content };
       if (toolCalls.length) msg.tool_calls = toolCalls;
+      if (opts.reasoningField && thinking.length) msg[opts.reasoningField] = thinking.join("\n");
       push(msg);
       continue;
     }
 
     const parts = [];
     const toolMsgs = [];
+    const toolImages = [];
+    let userMarked = false;
     for (const b of blocks) {
       if (!b) continue;
       if (b.type === "text") {
-        if (b.text) parts.push({ type: "text", text: b.text });
+        if (b.text) { parts.push(textPart(b)); if (marks && isMarked(b)) userMarked = true; }
       } else if (b.type === "image") {
         const part = imagePart(b);
         if (part) parts.push(part);
       } else if (b.type === "tool_result") {
-        toolMsgs.push({
-          role: "tool",
-          tool_call_id: b.tool_use_id || "",
-          content: toolResultText(b.content),
-        });
+        const r = toolResultContent(b.content);
+        let text = r.text;
+        if (b.is_error) text = "Error: " + (text || "tool failed");
+        let content = text;
+        if (marks && isMarked(b)) {
+          content = [{ type: "text", text: text || " ", cache_control: Object.assign({}, b.cache_control) }];
+          placedMarks = true;
+        }
+        toolMsgs.push({ role: "tool", tool_call_id: b.tool_use_id || "", content });
+        toolImages.push(...r.images);
       }
     }
     // tool messages must directly follow the assistant tool_calls message
     if (toolMsgs.length) messages.push(...toolMsgs);
-    if (parts.length) {
-      const onlyText = parts.every((x) => x.type === "text");
-      push({ role: "user", content: onlyText ? parts.map((x) => x.text).join("") : parts });
+    // Images from tool results cannot go in a tool message: send them in the
+    // user message that follows the tool messages.
+    const all = toolImages.length ? [{ type: "text", text: "Images from the tool result above:" }, ...toolImages, ...parts] : parts;
+    if (all.length) {
+      const onlyText = all.every((x) => x.type === "text");
+      if (onlyText && !userMarked) push({ role: "user", content: all.map((x) => x.text).join("\n\n") });
+      else push({ role: "user", content: all });
     }
   }
 
   const out = {
-    model: null,
+    model: opts.model || null,
     messages,
     max_tokens: Number(body.max_tokens) > 0 ? body.max_tokens : (p.maxTokens || 8192),
     stream: Boolean(body.stream),
@@ -647,15 +783,83 @@ function toOpenAI(body, pid) {
     else if (c && c.type === "tool" && c.name) out.tool_choice = { type: "function", function: { name: c.name } };
     else if (c && c.type === "none") out.tool_choice = "none";
     else out.tool_choice = "auto";
+    if (c && c.disable_parallel_tool_use === true && out.tool_choice !== "none") out.parallel_tool_calls = false;
   }
+  const effort = reasoningEffortFor(body.thinking);
+  if (effort) out.reasoning_effort = effort;
+  // Hidden flag (not serialized): the payload carries cache_control marks.
+  if (placedMarks) Object.defineProperty(out, "_vrCacheMarks", { value: true, enumerable: false });
   return out;
+}
+
+// Largest output the upstream model is known to accept, or null when unknown.
+// Order: learned from an earlier 400, model meta, catalog, provider maxTokens.
+function maxOutputLimit(pid, model, flags) {
+  const limits = [];
+  if (flags && Number(flags.maxTokens) > 0) limits.push(Number(flags.maxTokens));
+  let known = 0;
+  try {
+    const meta = modelMeta[metaKey(pid, model)];
+    if (meta && Number(meta.output) > 0) known = Number(meta.output);
+  } catch {}
+  if (!known) {
+    try {
+      const cat = catalog.getCachedCatalog(pid);
+      const m = cat && catalog.findModel(cat, model);
+      if (m && Number(m.output) > 0) known = Number(m.output);
+    } catch {}
+  }
+  if (!known) {
+    const raw = rawCfg.providers && rawCfg.providers[pid];
+    if (raw && Number(raw.maxTokens) > 0) known = Number(raw.maxTokens);
+  }
+  if (known) limits.push(known);
+  return limits.length ? Math.min(...limits) : null;
+}
+
+function clampMaxTokens(payload, pid, model, flags) {
+  const limit = maxOutputLimit(pid, model, flags);
+  if (!limit) return;
+  for (const k of ["max_tokens", "max_completion_tokens"]) {
+    if (Number(payload[k]) > limit) payload[k] = limit;
+  }
 }
 
 // ------------------------------------------------------------ response convert
 function mapStopReason(finish, hasTools) {
-  if (hasTools || finish === "tool_calls") return "tool_use";
-  if (finish === "length") return "max_tokens";
-  return "end_turn";
+  return mapStop(finish, hasTools, null, null).stop_reason;
+}
+
+function mapStop(finish, hasTools, choice, stops) {
+  if (hasTools || finish === "tool_calls" || finish === "function_call") return { stop_reason: "tool_use", stop_sequence: null };
+  if (finish === "length") return { stop_reason: "max_tokens", stop_sequence: null };
+  if (finish === "content_filter") return { stop_reason: "refusal", stop_sequence: null };
+  // vLLM / SGLang report the matched stop string.
+  const matched = choice && (typeof choice.stop_reason === "string" ? choice.stop_reason
+    : typeof choice.matched_stop === "string" ? choice.matched_stop : null);
+  if (matched && Array.isArray(stops) && stops.includes(matched)) return { stop_reason: "stop_sequence", stop_sequence: matched };
+  if (finish === "stop_sequence") return { stop_reason: "stop_sequence", stop_sequence: matched || null };
+  return { stop_reason: "end_turn", stop_sequence: null };
+}
+
+// OpenAI usage -> Anthropic usage. prompt_tokens includes cached tokens, the
+// Anthropic input_tokens does not.
+function mapUsage(u) {
+  u = u && typeof u === "object" ? u : {};
+  const d = u.prompt_tokens_details || u.input_tokens_details || {};
+  const read = Number(d.cached_tokens || u.cache_read_input_tokens || u.prompt_cache_hit_tokens || 0) || 0;
+  const write = Number(d.cache_write_tokens || d.cache_creation_tokens || u.cache_creation_input_tokens || 0) || 0;
+  const hasPrompt = u.prompt_tokens != null;
+  const input = hasPrompt ? Math.max(0, (Number(u.prompt_tokens) || 0) - read - write) : (Number(u.input_tokens) || 0);
+  return {
+    usage: {
+      input_tokens: input,
+      output_tokens: Number(u.completion_tokens || u.output_tokens || 0) || 0,
+      cache_creation_input_tokens: write,
+      cache_read_input_tokens: read,
+    },
+    prompt: hasPrompt ? (Number(u.prompt_tokens) || 0) : input + read + write,
+  };
 }
 
 function safeJson(text) {
@@ -686,17 +890,24 @@ function messageText(c) {
   return "";
 }
 
-function toAnthropicMessage(oai, model) {
+function reasoningOf(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  if (typeof obj.reasoning_content === "string") return { field: "reasoning_content", text: obj.reasoning_content };
+  if (typeof obj.reasoning === "string") return { field: "reasoning", text: obj.reasoning };
+  return null;
+}
+
+function toAnthropicMessage(oai, model, stops) {
   const choice = (oai.choices && oai.choices[0]) || {};
   const msg = choice.message || {};
   const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
   const content = [];
   const text = messageText(msg.content);
+  const r = reasoningOf(msg);
+  if (r && r.text) content.push({ type: "thinking", thinking: r.text, signature: "" });
   if (text.length) content.push({ type: "text", text });
   // Reasoning models sometimes put everything in reasoning_content.
-  else if (!calls.length && (msg.reasoning_content || msg.reasoning)) {
-    content.push({ type: "text", text: String(msg.reasoning_content || msg.reasoning) });
-  }
+  else if (!calls.length && r && r.text) content.push({ type: "text", text: r.text });
   for (const tc of calls) {
     content.push({
       type: "tool_use",
@@ -706,18 +917,15 @@ function toAnthropicMessage(oai, model) {
     });
   }
   if (!content.length) content.push({ type: "text", text: "" });
-  const usage = oai.usage || {};
   const rawId = String(oai.id || "");
+  const stop = mapStop(choice.finish_reason, calls.length > 0, choice, stops);
   return {
     id: rawId.startsWith("msg_") ? rawId : "msg_" + (rawId.replace(/[^A-Za-z0-9]/g, "").slice(-20) || Math.random().toString(36).slice(2, 14)),
     type: "message", role: "assistant", model,
     content,
-    stop_reason: mapStopReason(choice.finish_reason, calls.length > 0),
-    stop_sequence: null,
-    usage: {
-      input_tokens: usage.prompt_tokens || usage.input_tokens || 0,
-      output_tokens: usage.completion_tokens || usage.output_tokens || 0,
-    },
+    stop_reason: stop.stop_reason,
+    stop_sequence: stop.stop_sequence,
+    usage: mapUsage(oai.usage).usage,
   };
 }
 
@@ -736,10 +944,67 @@ async function callUpstream(pid, payload, signal) {
   return fetch(url, { method: "POST", headers, body: JSON.stringify(payload), signal });
 }
 
-function callSignal(extra) {
-  const timeout = AbortSignal.timeout(cfg.timeoutMs || 180000);
-  if (!extra) return timeout;
-  try { return AbortSignal.any([extra, timeout]); } catch { return extra; }
+// Config value in ms: missing/invalid -> default, 0 -> off.
+function cfgMs(name, def) {
+  const v = rawCfg[name];
+  if (v == null || v === "") return def;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : def;
+}
+
+// Timers for one upstream attempt:
+//   firstByteTimeoutMs (60 s)  no response headers yet -> abort, try the fallback
+//   idleTimeoutMs     (120 s)  no new data between chunks -> abort
+//   timeoutMs         (off)    overall cap, only when set in config.json
+//   nonStreamTimeoutMs         header wait for non-stream calls (default 300 s,
+//                              the whole answer is generated before headers)
+function upstreamTimer(clientSignal, stream) {
+  const firstByte = stream ? cfgMs("firstByteTimeoutMs", 60000) : cfgMs("nonStreamTimeoutMs", Math.max(cfgMs("firstByteTimeoutMs", 60000), 300000));
+  const idle = cfgMs("idleTimeoutMs", 120000);
+  const overall = Number(rawCfg.timeoutMs) > 0 ? Number(rawCfg.timeoutMs) : 0;
+  const ac = new AbortController();
+  let fbT = null;
+  let idleT = null;
+  let allT = null;
+  let fired = null;
+  const fire = (message) => {
+    if (ac.signal.aborted) return;
+    const e = new Error(message);
+    e.name = "TimeoutError";
+    fired = e;
+    ac.abort(e);
+  };
+  const onClient = () => { if (!ac.signal.aborted) ac.abort(clientSignal.reason); };
+  if (clientSignal) {
+    if (clientSignal.aborted) onClient();
+    else clientSignal.addEventListener("abort", onClient, { once: true });
+  }
+  if (overall) allT = setTimeout(() => fire(`upstream timeout (overall cap ${overall} ms)`), overall);
+  if (firstByte) fbT = setTimeout(() => fire(`upstream timeout (no response within ${firstByte} ms)`), firstByte);
+  const armIdle = () => {
+    if (idleT) clearTimeout(idleT);
+    idleT = idle ? setTimeout(() => fire(`upstream timeout (no data for ${idle} ms)`), idle) : null;
+  };
+  return {
+    signal: ac.signal,
+    get fired() { return fired; },
+    responded() { if (fbT) { clearTimeout(fbT); fbT = null; } armIdle(); },
+    touch() { armIdle(); },
+    pause() { if (idleT) { clearTimeout(idleT); idleT = null; } },
+    done() {
+      for (const t of [fbT, idleT, allT]) if (t) clearTimeout(t);
+      fbT = idleT = allT = null;
+      if (clientSignal) clientSignal.removeEventListener("abort", onClient);
+    },
+  };
+}
+
+function netError(e, timer, clientSignal) {
+  if (clientSignal && clientSignal.aborted) return { status: 499, message: "client closed the request", clientGone: true };
+  if (timer && timer.fired) return { status: 502, message: timer.fired.message, timeout: true };
+  if (e && e.name === "TimeoutError") return { status: 502, message: "upstream timeout", timeout: true };
+  const cause = e && e.cause && e.cause.message ? ": " + e.cause.message : "";
+  return { status: 502, message: String((e && e.message) || e) + cause };
 }
 
 function routeCandidates(requested) {
@@ -806,8 +1071,281 @@ async function readError(up) {
   try {
     const j = JSON.parse(text);
     msg = (j.error && (j.error.message || j.error.type)) || j.message || text;
+    if (typeof j.error === "string") msg = j.error;
   } catch {}
-  return { status: up.status, message: String(msg || "").slice(0, 500) };
+  return { status: up.status, message: redactSecrets(String(msg || "")).slice(0, 500) };
+}
+
+async function discardBody(up) {
+  try { if (up && up.body) await up.body.cancel(); } catch {}
+}
+
+// HTTP status for an error object found inside a 200 response.
+function statusFromError(e, dflt) {
+  if (!e || typeof e !== "object") e = { message: String(e || "") };
+  for (const v of [e.status, e.code, e.status_code, e.http_status]) {
+    const n = Number(v);
+    if (Number.isInteger(n) && n >= 400 && n <= 599) return n;
+  }
+  const s = [e.type, e.code, e.message].filter((x) => x != null).join(" ").toLowerCase();
+  if (/rate.?limit|too many requests|quota|throttl/.test(s)) return 429;
+  if (/overload|unavailable|capacity|busy/.test(s)) return 503;
+  if (/unauthori|authenticat|api.?key|credential/.test(s)) return 401;
+  if (/permission|forbidden/.test(s)) return 403;
+  if (/not.?found|does not exist|no such model|unknown model/.test(s)) return 404;
+  if (/context|too long|invalid|bad request|max_tokens/.test(s)) return 400;
+  return dflt || 502;
+}
+
+// {error: ...} body (JSON answer or one SSE event) -> {status, message} or null.
+function bodyError(j) {
+  if (!j || typeof j !== "object" || Array.isArray(j)) return null;
+  if (Array.isArray(j.choices) && j.choices.length) return null;
+  let e = j.error;
+  if (!e && j.type === "error") e = { message: j.message || "upstream error" };
+  if (!e) return null;
+  if (typeof e !== "object") e = { message: String(e) };
+  let message = e.message || e.type || e.code;
+  if (!message) { try { message = JSON.stringify(e); } catch { message = "upstream error"; } }
+  return { status: statusFromError(e), message: redactSecrets(String(message)).slice(0, 500) };
+}
+
+function fallbackEligible(status) {
+  return !status || status === 401 || status === 403 || status === 404 || status === 408 || status === 429 || status >= 500;
+}
+
+// ------------------------------------------------- adaptive upstream retries
+// Things learned about an upstream (provider + model) for this process, e.g.
+// "rejects cache_control" or "max output is 8192". Only stored after the
+// changed request succeeded.
+const quirks = new Map();
+const reasoningSeen = new Map(); // upstream key -> field the upstream used
+function quirkKey(pid, model) { return pid + "\u0000" + model; }
+
+function rememberQuirks(key, patch) {
+  if (!patch || !Object.keys(patch).length) return;
+  const cur = quirks.get(key) || {};
+  quirks.set(key, Object.assign(cur, patch));
+  log(`remembered for ${key.replace("\u0000", ":")}: ${JSON.stringify(patch)}`);
+}
+
+function lowerMaxTokens(msg, cur) {
+  const ctx = /maximum context length is (\d+)[\s\S]*?(\d+) in the messages/i.exec(msg);
+  if (ctx) {
+    const room = Number(ctx[1]) - Number(ctx[2]) - 64;
+    return room >= 256 && room < cur ? room : null;
+  }
+  const nums = (msg.match(/(?<![\w.-])\d+(?![\w-]|\.\d)/g) || []).map(Number).filter((n) => n >= 256 && n < cur);
+  if (nums.length) return Math.max(...nums);
+  if (cur > 8192) return 8192;
+  if (cur > 4096) return 4096;
+  return null;
+}
+
+const MAX_TOKENS_ERR = /max_tokens|max_completion_tokens|max_output_tokens|maxoutputtokens|max_new_tokens|(valid range|maximum|exceed|too large|at most|less than or equal)[^.]{0,60}tokens?|tokens?[^.]{0,60}(valid range|at most|exceed)/i;
+const NOT_GENERIC_400 = /context|too long|too many tokens|rate.?limit|quota|unauthori|authenticat|api.?key|permission|forbidden|(model|deployment)[^.]{0,40}(not found|does not exist|unknown|not available|no such)|unknown model|invalid model|model_not_found/i;
+
+// A 400 the request itself can fix -> { flags, why, remember } or null.
+function adaptPayload(err, payload, flags) {
+  if (!err || (err.status !== 400 && err.status !== 422)) return null;
+  const msg = String(err.message || "");
+  const low = msg.toLowerCase();
+  const cur = Number(payload.max_tokens || payload.max_completion_tokens) || 0;
+  if (cur && MAX_TOKENS_ERR.test(msg) && !/rate.?limit/.test(low)) {
+    const next = lowerMaxTokens(msg, cur);
+    if (next && next < cur) {
+      return { flags: { maxTokens: next }, why: `max_tokens ${cur} -> ${next}`, remember: !/context/.test(low) };
+    }
+  }
+  if (payload.stream_options && /stream_options|include_usage/.test(low)) {
+    return { flags: { noStreamOptions: true }, why: "without stream_options", remember: true };
+  }
+  if (payload.reasoning_effort && /reasoning/.test(low)) {
+    return { flags: { noReasoning: true }, why: "without reasoning_effort", remember: true };
+  }
+  if (payload.parallel_tool_calls !== undefined && /parallel_tool_calls|parallel tool/.test(low)) {
+    return { flags: { noParallel: true }, why: "without parallel_tool_calls", remember: true };
+  }
+  if (payload._vrCacheMarks && !flags.noCache && /cache_control|cache control/.test(low)) {
+    return { flags: { noCache: true }, why: "without cache_control", remember: true };
+  }
+  if (NOT_GENERIC_400.test(low)) return null;
+  if (payload._vrCacheMarks && !flags.noCache) {
+    return { flags: { noCache: true }, why: "without cache_control", remember: true };
+  }
+  if (!flags.noExtras && (payload.reasoning_effort || payload.parallel_tool_calls !== undefined || payload.stream_options)) {
+    return { flags: { noExtras: true, noReasoning: true, noParallel: true, noStreamOptions: true }, why: "without optional fields", remember: true };
+  }
+  return null;
+}
+
+function applyFlags(payload, pid, model, flags) {
+  clampMaxTokens(payload, pid, model, flags);
+  if (flags.noStreamOptions) delete payload.stream_options;
+  if (flags.noReasoning) delete payload.reasoning_effort;
+  if (flags.noParallel) delete payload.parallel_tool_calls;
+  return payload;
+}
+
+// --------------------------------------------------------- stream sources
+const PEEK_MS = 10000;
+
+// Reader over the upstream body that can wait for data with a deadline
+// without losing the pending read. Chunks read while peeking are buffered.
+function makeSource(up, timer) {
+  const reader = up.body.getReader();
+  let pending = null;
+  return {
+    buffered: [],
+    read() {
+      const p = pending || reader.read();
+      pending = null;
+      return p.then((r) => { timer.touch(); return r; });
+    },
+    readWithin(ms) {
+      if (!pending) pending = reader.read();
+      const p = pending;
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => resolve({ timeout: true }), ms);
+        p.then((r) => { clearTimeout(t); if (pending === p) pending = null; timer.touch(); resolve(r); },
+          (e) => { clearTimeout(t); if (pending === p) pending = null; reject(e); });
+      });
+    },
+    cancel() { try { reader.cancel().catch(() => {}); } catch {} },
+  };
+}
+
+async function* sourceChunks(src) {
+  while (src.buffered.length) yield src.buffered.shift();
+  for (;;) {
+    const r = await src.read();
+    if (r.done) return;
+    if (r.value) yield r.value;
+  }
+}
+
+function scanFirstEvent(text, final) {
+  const lines = text.split("\n");
+  if (!final) lines.pop();
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (!data) continue;
+    if (data === "[DONE]") return { ok: true };
+    let j;
+    try { j = JSON.parse(data); } catch { continue; }
+    const e = bodyError(j);
+    return e ? { error: e } : { ok: true };
+  }
+  return null;
+}
+
+// Look at the first SSE event before committing to this upstream: an error
+// event there is handled like the matching HTTP error (fallback eligible).
+// After PEEK_MS without an event the stream is accepted as is.
+async function peekStream(src, timer, clientSignal) {
+  const dec = new TextDecoder();
+  let text = "";
+  const deadline = Date.now() + PEEK_MS;
+  for (;;) {
+    const left = deadline - Date.now();
+    if (left <= 0) return {};
+    let r;
+    try { r = await src.readWithin(left); } catch (e) { return { error: netError(e, timer, clientSignal) }; }
+    if (r.timeout) return {};
+    if (r.done) {
+      text += dec.decode();
+      const found = scanFirstEvent(text, true);
+      if (found) return found.error ? { error: found.error } : {};
+      let j = null;
+      try { j = JSON.parse(text.trim()); } catch {}
+      const e = bodyError(j);
+      if (e) return { error: e };
+      return { error: { status: 502, message: "upstream stream ended without data" } };
+    }
+    src.buffered.push(r.value);
+    text += dec.decode(r.value, { stream: true });
+    const found = scanFirstEvent(text, false);
+    if (found) return found.error ? { error: found.error } : {};
+  }
+}
+
+// One candidate: call, refresh the key once on 401, retry with a fixed
+// request on fixable 400s, and check for an error hidden in a 200 answer.
+// -> { ok: true, payload, json | src, timer } or { ok: false, err }
+async function attemptUpstream(c, build, clientSignal) {
+  const qk = quirkKey(c.provider, c.model);
+  const flags = Object.assign({}, quirks.get(qk));
+  const learned = {};
+  let authRetried = false;
+  let adaptive = 0;
+  for (;;) {
+    const payload = build(c, flags);
+    const timer = upstreamTimer(clientSignal, Boolean(payload.stream));
+    let up;
+    try {
+      up = await callUpstream(c.provider, payload, timer.signal);
+    } catch (e) {
+      const err = netError(e, timer, clientSignal);
+      timer.done();
+      return { ok: false, err };
+    }
+    timer.responded();
+    if (up.status === 401 && !authRetried) {
+      authRetried = true;
+      await discardBody(up);
+      timer.done();
+      keyFor(c.provider, true);
+      continue;
+    }
+    let err = null;
+    let json = null;
+    let src = null;
+    if (!up.ok) {
+      err = await readError(up);
+    } else if (!payload.stream) {
+      let raw = "";
+      try { raw = await up.text(); } catch (e) { err = netError(e, timer, clientSignal); }
+      if (!err) {
+        try { json = JSON.parse(raw); } catch {
+          err = { status: 502, message: "upstream returned non-JSON: " + redactSecrets(String(raw).replace(/\s+/g, " ")).slice(0, 300) };
+        }
+      }
+      if (!err) err = bodyError(json);
+    } else {
+      src = makeSource(up, timer);
+      const peek = await peekStream(src, timer, clientSignal);
+      if (peek.error) { err = peek.error; src.cancel(); src = null; }
+    }
+    if (!err) {
+      if (!payload.stream) timer.done();
+      if (Object.keys(learned).length) rememberQuirks(qk, learned);
+      return { ok: true, payload, json, src, timer };
+    }
+    timer.done();
+    if (err.clientGone) return { ok: false, err };
+    const fix = adaptive < 5 ? adaptPayload(err, payload, flags) : null;
+    if (!fix) return { ok: false, err };
+    adaptive += 1;
+    log(`upstream ${c.provider}:${c.model} ${err.status}: ${String(err.message).replace(/\s+/g, " ").slice(0, 120)} - retrying ${fix.why}`);
+    Object.assign(flags, fix.flags);
+    if (fix.remember) Object.assign(learned, fix.flags);
+  }
+}
+
+async function runCandidates(candidates, build, clientSignal, auto) {
+  let lastErr = null;
+  for (const c of candidates) {
+    if (!cfg.providers[c.provider]) { lastErr = { status: 404, message: "unknown provider " + c.provider }; continue; }
+    const r = await attemptUpstream(c, build, clientSignal);
+    if (r.ok) return { got: r, used: c, lastErr };
+    lastErr = r.err;
+    log(`upstream ${c.provider}:${c.model} ${lastErr.status}: ${String(lastErr.message).replace(/\s+/g, " ").slice(0, 160)}`);
+    if (lastErr.clientGone) break;
+    if (!auto && !fallbackEligible(lastErr.status)) break;
+  }
+  return { got: null, used: null, lastErr };
 }
 
 // --------------------------------------------------------------- streaming
@@ -820,30 +1358,72 @@ function sseHeaders(res) {
   });
 }
 
-async function relayStream(up, res, model) {
+// res.write that waits for 'drain' when the client reads slowly.
+function makeWriter(res, timer) {
+  return async (data) => {
+    if (res.writableEnded || res.destroyed) return false;
+    let ok = true;
+    try { ok = res.write(data); } catch { return false; }
+    if (!ok && !res.destroyed && !res.writableEnded) {
+      if (timer) timer.pause();
+      await new Promise((resolve) => {
+        const done = () => { res.off("drain", done); res.off("close", done); resolve(); };
+        res.on("drain", done);
+        res.on("close", done);
+      });
+      if (timer) timer.touch();
+    }
+    return !res.destroyed;
+  };
+}
+
+// ctx: { timer, stops, onReasoning(field) }
+async function relayStream(src, res, model, ctx) {
+  ctx = ctx || {};
   sseHeaders(res);
   if (res.flushHeaders) { try { res.flushHeaders(); } catch {} }
 
-  const send = (event, data) => {
-    if (res.writableEnded || res.destroyed) return;
-    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {}
+  const write = makeWriter(res, ctx.timer);
+  let queue = [];
+  let lastOut = Date.now();
+  const send = (event, data) => { queue.push(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+  const flush = async () => {
+    if (!queue.length) return;
+    const s = queue.join("");
+    queue = [];
+    lastOut = Date.now();
+    await write(s);
   };
-  const msgId = "msg_" + Math.random().toString(36).slice(2, 14);
+  // Keep the client from stalling while the upstream thinks.
+  const pingMs = cfgMs("pingIntervalMs", 10000);
+  const ping = pingMs ? setInterval(() => {
+    if (Date.now() - lastOut < pingMs - 20 || queue.length) return;
+    send("ping", { type: "ping" });
+    flush().catch(() => {});
+  }, Math.max(50, Math.floor(pingMs / 4))) : null;
 
+  const msgId = "msg_" + Math.random().toString(36).slice(2, 14);
   send("message_start", {
     type: "message_start",
     message: {
       id: msgId, type: "message", role: "assistant", model, content: [],
-      stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 },
+      stop_reason: null, stop_sequence: null,
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     },
   });
 
   let blockIndex = -1;
   let open = null;
   let finish = null;
-  const usage = { input_tokens: 0, output_tokens: 0 };
-  const tools = new Map(); // tool_calls[].index -> tool
+  let finishChoice = null;
+  let sawDone = false;
+  let rawUsage = null;
   let reasoning = "";
+  let textStarted = false;
+  const tools = new Map(); // slot key -> tool, in arrival order
+  const indexSlot = new Map(); // tool_calls[].index -> current slot key
+  let lastKey = null;
+  let slotSeq = 0;
 
   const startBlock = (type, extra) => {
     blockIndex += 1;
@@ -863,135 +1443,258 @@ async function relayStream(up, res, model) {
   const sendText = (text) => {
     if (!text) return;
     if (open !== "text") { stopBlock(); startBlock("text", { text: "" }); }
+    textStarted = true;
     send("content_block_delta", {
       type: "content_block_delta", index: blockIndex,
       delta: { type: "text_delta", text },
     });
   };
+  // Upstream reasoning -> Anthropic thinking block, before any text/tool.
+  const sendThinking = (text) => {
+    if (!text || textStarted || tools.size) return;
+    if (open !== "thinking") { stopBlock(); startBlock("thinking", { thinking: "", signature: "" }); }
+    send("content_block_delta", {
+      type: "content_block_delta", index: blockIndex,
+      delta: { type: "thinking_delta", thinking: text },
+    });
+  };
 
   // Providers differ: most stream argument fragments, some resend the whole
-  // (growing) JSON every chunk. Handle both without duplicating the payload.
+  // (growing) JSON every chunk. A fragment is a full resend only when it is
+  // longer than and starts with what we already have.
   const addArgs = (t, frag) => {
-    if (!frag) return;
+    if (!frag || typeof frag !== "string") return;
     if (!t.args) t.args = frag;
-    else if (frag.startsWith(t.args)) t.args = frag;
-    else if (t.args.endsWith(frag)) return;
+    else if (frag.length > t.args.length && frag.startsWith(t.args)) t.args = frag;
     else t.args += frag;
+  };
+
+  const isCompleteJson = (s) => { try { JSON.parse(s); return true; } catch { return false; } };
+  // A new id (or a new name after complete arguments) opens a new slot, also
+  // when the provider sends no index or reuses one index for every call.
+  const slotFor = (tc) => {
+    const name = tc.function && tc.function.name;
+    const differs = (t) => Boolean(t && ((t.id && tc.id && t.id !== tc.id) ||
+      (!tc.id && name && t.name && t.args && isCompleteJson(t.args))));
+    let key;
+    if (tc.index != null) {
+      key = indexSlot.get(tc.index);
+      if (!key || differs(tools.get(key))) { key = "s" + (slotSeq += 1); indexSlot.set(tc.index, key); }
+    } else {
+      key = lastKey;
+      if (!key || differs(tools.get(key))) key = "s" + (slotSeq += 1);
+    }
+    if (!tools.has(key)) tools.set(key, { id: "", name: "", args: "" });
+    lastKey = key;
+    return tools.get(key);
   };
 
   const handleChunk = (json) => {
     if (!json || typeof json !== "object") return;
-    if (json.error) {
-      const m = json.error.message || json.error.type || JSON.stringify(json.error);
-      throw new Error(String(m));
-    }
-    if (json.usage) {
-      usage.input_tokens = json.usage.prompt_tokens || json.usage.input_tokens || usage.input_tokens;
-      usage.output_tokens = json.usage.completion_tokens || json.usage.output_tokens || usage.output_tokens;
-    }
+    const e = bodyError(json);
+    if (e) { const err = new Error(e.message); err.status = e.status; throw err; }
+    if (json.usage) rawUsage = json.usage;
     const choice = (json.choices && json.choices[0]) || null;
     if (!choice) return;
-    const d = choice.delta || {};
+    const d = choice.delta || choice.message || {};
+
+    const r = reasoningOf(d);
+    if (r && r.text) {
+      reasoning += r.text;
+      if (ctx.onReasoning) ctx.onReasoning(r.field);
+      sendThinking(r.text);
+    }
 
     let text = d.content;
     if (Array.isArray(text)) {
       text = text.map((x) => (typeof x === "string" ? x : (x && x.text) || "")).join("");
     }
     if (typeof text === "string" && text.length) sendText(text);
-    if (typeof d.reasoning_content === "string") reasoning += d.reasoning_content;
-    else if (typeof d.reasoning === "string") reasoning += d.reasoning;
 
     const tcs = Array.isArray(d.tool_calls) ? d.tool_calls : [];
     for (const tc of tcs) {
-      const i = tc.index == null ? 0 : tc.index;
-      let t = tools.get(i);
-      if (!t) { t = { id: "", name: "", args: "" }; tools.set(i, t); }
+      if (!tc || typeof tc !== "object") continue;
+      if (open === "thinking") stopBlock();
+      const t = slotFor(tc);
       if (tc.id) t.id = tc.id;
       if (tc.function && tc.function.name) t.name = tc.function.name;
       addArgs(t, tc.function && tc.function.arguments);
     }
 
-    if (choice.finish_reason) finish = choice.finish_reason;
+    if (choice.finish_reason) { finish = choice.finish_reason; finishChoice = choice; }
+  };
+
+  const handleLine = (raw) => {
+    const line = raw.trim();
+    if (!line.startsWith("data:")) return;
+    const data = line.slice(5).trim();
+    if (!data) return;
+    if (data === "[DONE]") { sawDone = true; return; }
+    let json;
+    try { json = JSON.parse(data); } catch { return; }
+    handleChunk(json);
   };
 
   const decoder = new TextDecoder();
   let buf = "";
   let streamError = null;
+  let clientGone = false;
 
   try {
-    for await (const chunk of up.body) {
+    await flush();
+    for await (const chunk of sourceChunks(src)) {
       buf += decoder.decode(chunk, { stream: true });
       let idx;
       while ((idx = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, idx).trim();
+        const line = buf.slice(0, idx);
         buf = buf.slice(idx + 1);
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
-        let json;
-        try { json = JSON.parse(data); } catch { continue; }
-        handleChunk(json);
+        handleLine(line);
       }
+      await flush();
+      if (res.destroyed) { clientGone = true; break; }
     }
-    // flush a final line without trailing newline
-    const tail = (buf + decoder.decode()).trim();
-    if (tail.startsWith("data:")) {
-      const data = tail.slice(5).trim();
-      if (data && data !== "[DONE]") {
-        try { handleChunk(JSON.parse(data)); } catch {}
-      }
+    if (!clientGone) {
+      // flush a final line without trailing newline
+      const tail = buf + decoder.decode();
+      if (tail.trim()) handleLine(tail);
     }
   } catch (e) {
-    streamError = e;
-    log("stream read error (" + (up.url || "upstream") + "): " + e.message);
+    if (res.destroyed) clientGone = true;
+    else {
+      streamError = e;
+      const why = ctx.timer && ctx.timer.fired ? ctx.timer.fired.message : e.message;
+      streamError.message = why;
+      log("stream read error (" + (src.url || "upstream") + "): " + why);
+    }
+  } finally {
+    if (ping) clearInterval(ping);
+    if (ctx.timer) ctx.timer.done();
+  }
+
+  const mapped = mapUsage(rawUsage);
+  const result = Object.assign({}, mapped.usage, { prompt: mapped.prompt });
+
+  if (clientGone) {
+    src.cancel();
+    return Object.assign(result, { error: "client closed the stream" });
+  }
+
+  // Upstream closed without finish_reason and without [DONE]: the answer is
+  // incomplete, so do not report a normal end of turn.
+  if (!streamError && !finish && !sawDone) {
+    streamError = new Error("upstream stream ended early");
+    log("stream ended early (" + model + ")");
   }
 
   if (streamError) {
-    send("error", { type: "error", error: { type: "api_error", message: streamError.message } });
+    send("error", { type: "error", error: { type: errorTypeFor(streamError.status || 500), message: streamError.message } });
+    await flush();
     if (!res.writableEnded) { try { res.end(); } catch {} }
-    return Object.assign({}, usage, { error: streamError.message });
+    return Object.assign(result, { error: streamError.message });
   }
 
   stopBlock();
 
   // Emit all tool calls once, in order, each as its own content block.
-  if (tools.size) {
-    for (const t of tools.values()) {
-      const args = t.args && t.args.trim() ? t.args : "{}";
-      blockIndex += 1;
-      open = "tool_use";
-      send("content_block_start", {
-        type: "content_block_start", index: blockIndex,
-        content_block: {
-          type: "tool_use",
-          id: t.id || "toolu_" + Math.random().toString(36).slice(2, 12),
-          name: t.name || "tool",
-          input: {},
-        },
-      });
-      send("content_block_delta", {
-        type: "content_block_delta", index: blockIndex,
-        delta: { type: "input_json_delta", partial_json: args },
-      });
-      send("content_block_stop", { type: "content_block_stop", index: blockIndex });
-      open = null;
-    }
+  for (const t of tools.values()) {
+    let args = t.args && t.args.trim() ? t.args : "{}";
+    if (!isCompleteJson(args)) args = JSON.stringify(safeJson(args));
+    blockIndex += 1;
+    send("content_block_start", {
+      type: "content_block_start", index: blockIndex,
+      content_block: {
+        type: "tool_use",
+        id: t.id || "toolu_" + Math.random().toString(36).slice(2, 12),
+        name: t.name || "tool",
+        input: {},
+      },
+    });
+    send("content_block_delta", {
+      type: "content_block_delta", index: blockIndex,
+      delta: { type: "input_json_delta", partial_json: args },
+    });
+    send("content_block_stop", { type: "content_block_stop", index: blockIndex });
   }
 
   // Some reasoning models return only reasoning_content.
-  if (blockIndex < 0 && reasoning) sendText(reasoning);
+  if (!textStarted && !tools.size && reasoning) { sendText(reasoning); stopBlock(); }
   // Always leave at least one block so strict clients are happy.
   if (blockIndex < 0) { startBlock("text", { text: "" }); stopBlock(); }
 
-  const hasTool = tools.size > 0;
+  const stop = mapStop(finish, tools.size > 0, finishChoice, ctx.stops);
   send("message_delta", {
     type: "message_delta",
-    delta: { stop_reason: mapStopReason(finish, hasTool), stop_sequence: null },
-    usage: { output_tokens: usage.output_tokens, input_tokens: usage.input_tokens },
+    delta: { stop_reason: stop.stop_reason, stop_sequence: stop.stop_sequence },
+    usage: mapped.usage,
   });
   send("message_stop", { type: "message_stop" });
+  await flush();
   if (!res.writableEnded) { try { res.end(); } catch {} }
-  return usage;
+  return result;
+}
+
+// OpenAI passthrough stream: bytes go through unchanged; only an early end
+// or a read error adds a final error chunk.
+async function relayOpenAIStream(src, res, ctx) {
+  ctx = ctx || {};
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+  });
+  if (res.flushHeaders) { try { res.flushHeaders(); } catch {} }
+  const write = makeWriter(res, ctx.timer);
+  const decoder = new TextDecoder();
+  let buf = "";
+  let usage = null;
+  let finish = null;
+  let sawDone = false;
+  let sawError = false;
+  let streamError = null;
+  const onLine = (raw) => {
+    const line = raw.trim();
+    if (!line.startsWith("data:")) return;
+    const data = line.slice(5).trim();
+    if (!data) return;
+    if (data === "[DONE]") { sawDone = true; return; }
+    try {
+      const j = JSON.parse(data);
+      if (j && j.usage) usage = j.usage;
+      if (bodyError(j)) sawError = true;
+      const ch = j && j.choices && j.choices[0];
+      if (ch && ch.finish_reason) finish = ch.finish_reason;
+    } catch {}
+  };
+  try {
+    for await (const chunk of sourceChunks(src)) {
+      if (res.destroyed) break;
+      await write(chunk);
+      buf += decoder.decode(chunk, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        onLine(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+      }
+    }
+    if (buf.trim()) onLine(buf);
+  } catch (e) {
+    if (!res.destroyed) {
+      streamError = (ctx.timer && ctx.timer.fired) ? ctx.timer.fired.message : e.message;
+      log("openai stream error: " + streamError);
+    }
+  } finally {
+    if (ctx.timer) ctx.timer.done();
+  }
+  if (res.destroyed) { src.cancel(); return { usage, error: "client closed the stream" }; }
+  let error = null;
+  if (streamError && !sawError) error = streamError;
+  else if (!streamError && !finish && !sawDone && !sawError) error = "upstream stream ended early";
+  if (error) {
+    await write("\n\ndata: " + JSON.stringify({ error: { message: error, type: "server_error", param: null, code: "upstream_stream_error" } }) + "\n\n");
+  }
+  if (!res.writableEnded) { try { res.end(); } catch {} }
+  return { usage, error };
 }
 
 // ---------------------------------------------------------------- handlers
@@ -1002,11 +1705,20 @@ function anthropicError(res, status, type, message) {
   res.end(JSON.stringify({ type: "error", error: { type, message } }));
 }
 
+function openaiError(res, status, type, message, code) {
+  if (res.destroyed) return;
+  if (res.headersSent) { if (!res.writableEnded) res.end(); return; }
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify({ error: { message, type: type || openaiErrorType(status), param: null, code: code || null } }));
+}
+
 function errorTypeFor(status) {
   if (status === 401) return "authentication_error";
   if (status === 403) return "permission_error";
   if (status === 404) return "not_found_error";
+  if (status === 413) return "request_too_large";
   if (status === 429) return "rate_limit_error";
+  if (status === 529) return "overloaded_error";
   if (status >= 500) return "api_error";
   return "invalid_request_error";
 }
@@ -1017,6 +1729,11 @@ function openaiErrorType(status) {
   if (status === 429) return "rate_limit_error";
   if (status >= 500) return "server_error";
   return "invalid_request_error";
+}
+
+function noteReasoning(c, field) {
+  const k = quirkKey(c.provider, c.model);
+  if (!reasoningSeen.has(k)) reasoningSeen.set(k, field);
 }
 
 async function handleMessages(req, res, body, clientSignal) {
@@ -1032,37 +1749,25 @@ async function handleMessages(req, res, body, clientSignal) {
     return anthropicError(res, 404, "not_found_error", "unknown provider for model " + requested);
   }
 
-  let payload;
-  try { payload = toOpenAI(body, first.provider); } catch (e) {
+  let probe;
+  try { probe = toOpenAI(body, first.provider, { model: first.model }); } catch (e) {
     return anthropicError(res, 400, "invalid_request_error", "could not convert request: " + e.message);
   }
 
-  log(`-> anthropic ${req.headers["user-agent"] || "?"} ${requested} stream=${payload.stream} msgs=${payload.messages.length} tools=${(payload.tools || []).length} chain=${candidates.map((c) => c.provider + ":" + c.model).join(" > ")}`);
+  log(`-> anthropic ${req.headers["user-agent"] || "?"} ${requested} stream=${probe.stream} msgs=${probe.messages.length} tools=${(probe.tools || []).length} chain=${candidates.map((c) => c.provider + ":" + c.model).join(" > ")}`);
 
-  let up = null;
-  let used = null;
-  let lastErr = null;
+  const stops = Array.isArray(body.stop_sequences) ? body.stop_sequences : null;
+  const build = (c, flags) => {
+    const out = toOpenAI(body, c.provider, {
+      model: c.model,
+      cacheMarks: !flags.noCache,
+      reasoningField: reasoningSeen.get(quirkKey(c.provider, c.model)) || null,
+    });
+    return applyFlags(out, c.provider, c.model, flags);
+  };
 
-  for (const c of candidates) {
-    payload.model = c.model;
-    try {
-      up = await callUpstream(c.provider, payload, callSignal(clientSignal));
-      if (up.status === 401) {
-        keyFor(c.provider, true);
-        up = await callUpstream(c.provider, payload, callSignal(clientSignal));
-      }
-      if (up.ok) { used = c; break; }
-      lastErr = await readError(up);
-      log(`upstream ${c.provider} ${lastErr.status}: ${lastErr.message.replace(/\s+/g, " ").slice(0, 160)}`);
-      if (!auto && lastErr.status !== 429 && lastErr.status < 500) break;
-    } catch (e) {
-      lastErr = { status: 502, message: e.name === "TimeoutError" ? "upstream timeout" : e.message };
-      log(`upstream ${c.provider} failed: ${lastErr.message}`);
-      up = null;
-    }
-  }
-
-  if (!used || !up) {
+  const { got, used, lastErr } = await runCandidates(candidates, build, clientSignal, auto);
+  if (!got) {
     const status = (lastErr && lastErr.status) || 502;
     return anthropicError(res, status, errorTypeFor(status), lastErr ? lastErr.message : "no provider available");
   }
@@ -1071,11 +1776,12 @@ async function handleMessages(req, res, body, clientSignal) {
   res.setHeader("x-vibe-route-auto", auto ? "1" : "0");
   res.setHeader("x-vibe-route-attempts", String(candidates.indexOf(used) + 1));
 
-  if (payload.stream) {
-    let usage = null;
+  if (got.payload.stream) {
     try {
-      usage = await relayStream(up, res, requested);
-      bumpUsage(used.provider, used.model, (usage && usage.input_tokens) || 0, (usage && usage.output_tokens) || 0);
+      const usage = await relayStream(got.src, res, requested, {
+        timer: got.timer, stops, onReasoning: (field) => noteReasoning(used, field),
+      });
+      bumpUsage(used.provider, used.model, (usage && usage.prompt) || 0, (usage && usage.output_tokens) || 0);
       if (usage && usage.error) log(`<- stream error ${used.provider}:${used.model}: ${usage.error}`);
       else log(`<- stream done ${used.provider}:${used.model}`);
     } catch (e) {
@@ -1086,22 +1792,12 @@ async function handleMessages(req, res, body, clientSignal) {
     return;
   }
 
-  let raw = "";
-  try { raw = await up.text(); } catch (e) {
-    return anthropicError(res, 502, "api_error", "could not read upstream response: " + e.message);
-  }
-  let oai;
-  try {
-    oai = JSON.parse(raw);
-  } catch {
-    return anthropicError(res, 502, "api_error", "upstream returned non-JSON: " + String(raw).replace(/\s+/g, " ").slice(0, 300));
-  }
-  if (oai && oai.error) {
-    const em = oai.error.message || oai.error.type || "upstream error";
-    return anthropicError(res, 502, "api_error", String(em));
-  }
-  const out = toAnthropicMessage(oai, requested);
-  bumpUsage(used.provider, used.model, out.usage.input_tokens, out.usage.output_tokens);
+  const oai = got.json;
+  const choice0 = (oai && oai.choices && oai.choices[0]) || {};
+  const r = reasoningOf(choice0.message);
+  if (r && r.text) noteReasoning(used, r.field);
+  const out = toAnthropicMessage(oai, requested, stops);
+  bumpUsage(used.provider, used.model, mapUsage(oai.usage).prompt, out.usage.output_tokens);
   log(`<- 200 ${used.provider}:${used.model} blocks=${out.content.length} stop=${out.stop_reason}`);
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify(out));
@@ -1113,115 +1809,96 @@ async function handleOpenAI(req, res, body, clientSignal) {
   const auto = isAutoModel(requested);
   const candidates = auto ? autoChain() : routeCandidates(requested);
   if (!candidates.length) {
-    return jsonRes(res, 400, { error: { type: "invalid_request_error", message: "no models configured — add models in the app first" } });
+    return openaiError(res, 400, "invalid_request_error", "no models configured — add models in the app first");
   }
   const first = candidates[0];
   if (!cfg.providers[first.provider]) {
-    return jsonRes(res, 404, { error: { type: "not_found_error", message: "unknown model " + requested } });
+    return openaiError(res, 404, "not_found_error", "unknown model " + requested, "model_not_found");
   }
 
-  const payload = Object.assign({}, body);
   log(`-> openai ${req.headers["user-agent"] || "?"} ${requested} stream=${Boolean(body.stream)} chain=${candidates.map((c) => c.provider + ":" + c.model).join(" > ")}`);
 
-  let up = null;
-  let used = null;
-  let lastErr = null;
-
-  for (const c of candidates) {
-    payload.model = c.model;
-    try {
-      up = await callUpstream(c.provider, payload, callSignal(clientSignal));
-      if (up.status === 401) {
-        keyFor(c.provider, true);
-        up = await callUpstream(c.provider, payload, callSignal(clientSignal));
-      }
-      if (up.ok) { used = c; break; }
-      lastErr = await readError(up);
-      log(`upstream ${c.provider} ${lastErr.status}: ${lastErr.message.replace(/\s+/g, " ").slice(0, 160)}`);
-      if (!auto && lastErr.status !== 429 && lastErr.status < 500) break;
-    } catch (e) {
-      lastErr = { status: 502, message: e.name === "TimeoutError" ? "upstream timeout" : e.message };
-      log(`upstream ${c.provider} failed: ${lastErr.message}`);
-      up = null;
-    }
-  }
-
-  if (!used || !up) {
+  const build = (c, flags) => applyFlags(Object.assign({}, body, { model: c.model }), c.provider, c.model, flags);
+  const { got, used, lastErr } = await runCandidates(candidates, build, clientSignal, auto);
+  if (!got) {
     const status = (lastErr && lastErr.status) || 502;
-    return jsonRes(res, status, { error: { type: openaiErrorType(status), message: lastErr ? lastErr.message : "no provider available" } });
+    return openaiError(res, status, openaiErrorType(status), lastErr ? lastErr.message : "no provider available");
   }
 
   res.setHeader("x-vibe-route-model", used.provider + "/" + used.model);
   res.setHeader("x-vibe-route-auto", auto ? "1" : "0");
   res.setHeader("x-vibe-route-attempts", String(candidates.indexOf(used) + 1));
 
-  if (payload.stream) {
-    res.writeHead(200, {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "x-accel-buffering": "no",
-    });
-    if (res.flushHeaders) { try { res.flushHeaders(); } catch {} }
-    const decoder = new TextDecoder();
-    let buf = "";
-    let usage = null;
-    try {
-      for await (const chunk of up.body) {
-        if (res.destroyed) break;
-        try { res.write(chunk); } catch { break; }
-        buf += decoder.decode(chunk, { stream: true });
-        let i;
-        while ((i = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, i).trim();
-          buf = buf.slice(i + 1);
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (!data || data === "[DONE]") continue;
-          try {
-            const j = JSON.parse(data);
-            if (j && j.usage) usage = j.usage;
-          } catch {}
-        }
-      }
-    } catch (e) {
-      log("openai stream error (" + used.provider + "): " + e.message);
-    }
-    if (!res.writableEnded) { try { res.end(); } catch {} }
+  if (got.payload.stream) {
+    const r = await relayOpenAIStream(got.src, res, { timer: got.timer });
+    const usage = r && r.usage;
     bumpUsage(used.provider, used.model, (usage && usage.prompt_tokens) || 0, (usage && usage.completion_tokens) || 0);
-    log(`<- stream done ${used.provider}:${used.model}`);
+    if (r && r.error) log(`<- stream error ${used.provider}:${used.model}: ${r.error}`);
+    else log(`<- stream done ${used.provider}:${used.model}`);
     return;
   }
 
-  let raw = "";
-  try { raw = await up.text(); } catch (e) {
-    return jsonRes(res, 502, { error: { type: "api_error", message: "could not read upstream response: " + e.message } });
-  }
-  let j;
-  try {
-    j = JSON.parse(raw);
-  } catch {
-    return jsonRes(res, 502, { error: { type: "api_error", message: "upstream returned non-JSON: " + String(raw).replace(/\s+/g, " ").slice(0, 300) } });
-  }
+  const j = got.json;
   if (j && typeof j === "object" && !Array.isArray(j)) j.model = requested;
   bumpUsage(used.provider, used.model, (j && j.usage && j.usage.prompt_tokens) || 0, (j && j.usage && j.usage.completion_tokens) || 0);
   log(`<- 200 ${used.provider}:${used.model}`);
   jsonRes(res, 200, j);
 }
 
-function estimateTokens(body) {
-  let chars = 0;
-  const add = (v) => { chars += String(v || "").length; };
-  if (body.system) add(typeof body.system === "string" ? body.system : blocksToText(body.system));
-  for (const m of body.messages || []) {
-    if (typeof m.content === "string") add(m.content);
-    else for (const b of m.content || []) {
-      add(b.text || "");
-      if (b.type === "tool_use") add(JSON.stringify(b.input || {}));
-      if (b.type === "tool_result") add(typeof b.content === "string" ? b.content : blocksToText(b.content));
+// count_tokens input check: the shape Anthropic accepts, so a malformed body
+// gets a clear 400 instead of a guess.
+function countTokensProblem(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "request body must be a JSON object";
+  if (body.system != null && typeof body.system !== "string") {
+    if (!Array.isArray(body.system)) return "system must be a string or an array of blocks";
+    if (body.system.some((b) => !b || typeof b !== "object")) return "system blocks must be objects";
+  }
+  if (body.messages != null && !Array.isArray(body.messages)) return "messages must be an array";
+  const msgs = body.messages || [];
+  for (let i = 0; i < msgs.length; i += 1) {
+    const m = msgs[i];
+    if (!m || typeof m !== "object" || Array.isArray(m)) return `messages.${i} must be an object`;
+    if (typeof m.content === "string") continue;
+    if (!Array.isArray(m.content)) return `messages.${i}.content must be a string or an array of blocks`;
+    for (let j = 0; j < m.content.length; j += 1) {
+      const b = m.content[j];
+      if (!b || typeof b !== "object" || Array.isArray(b)) return `messages.${i}.content.${j} must be an object`;
     }
   }
-  for (const t of body.tools || []) { add(t.description); add(JSON.stringify(t.input_schema || {})); }
+  if (body.tools != null && !Array.isArray(body.tools)) return "tools must be an array";
+  return null;
+}
+
+function estimateTokens(body) {
+  let chars = 0;
+  const add = (v) => {
+    if (v == null) return;
+    if (typeof v === "string") { chars += v.length; return; }
+    try { chars += JSON.stringify(v).length; } catch {}
+  };
+  const addBlocks = (c, depth) => {
+    if (c == null || depth > 4) return;
+    if (typeof c === "string") return add(c);
+    const list = Array.isArray(c) ? c : [c];
+    for (const b of list) {
+      if (!b) continue;
+      if (typeof b === "string") { add(b); continue; }
+      if (typeof b !== "object") continue;
+      if (typeof b.text === "string") add(b.text);
+      if (typeof b.thinking === "string") add(b.thinking);
+      if (b.type === "tool_use") add(b.input || {});
+      if (b.type === "tool_result") addBlocks(b.content, depth + 1);
+    }
+  };
+  if (!body || typeof body !== "object") return 1;
+  addBlocks(body.system, 0);
+  for (const m of Array.isArray(body.messages) ? body.messages : []) {
+    if (m && typeof m === "object") addBlocks(m.content, 0);
+  }
+  for (const t of Array.isArray(body.tools) ? body.tools : []) {
+    if (!t || typeof t !== "object") continue;
+    add(t.name); add(t.description); add(t.input_schema || {});
+  }
   return Math.max(1, Math.ceil(chars / 4));
 }
 
@@ -1493,7 +2170,17 @@ function jsonRes(res, status, obj) {
 function maskKey(k) {
   if (!k) return "";
   if (k.length <= 10) return "***";
-  return k.slice(0, 6) + "..." + k.slice(-4);
+  // Only the last 4 characters: enough to tell keys apart, too little to help guess one.
+  return "••••" + k.slice(-4);
+}
+
+/** Same provider address (scheme + host + port + path), ignoring a trailing slash and case of the host. */
+function sameBase(a, b) {
+  const norm = (s) => {
+    try { const u = new URL(String(s || "").trim()); return `${u.protocol}//${u.host.toLowerCase()}${u.pathname.replace(/\/+$/, "")}`; }
+    catch { return String(s || "").trim().replace(/\/+$/, "").toLowerCase(); }
+  };
+  return norm(a) === norm(b);
 }
 
 async function testProvider(p) {
@@ -1559,7 +2246,13 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const p = url.pathname.replace(/\/+$/, "") || "/";
   const force = url.searchParams.get("refresh") === "1";
-  addCors(res);
+  const refused = guardRequest(req, p);
+  if (refused) {
+    req.resume();
+    res.writeHead(403, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ type: "error", error: { type: "permission_error", message: refused } }));
+  }
+  // Same-origin pages never need a CORS preflight; nothing else is let in.
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
 
   // ---------------------------------------------------------------- app api
@@ -1715,8 +2408,13 @@ const server = http.createServer(async (req, res) => {
       try {
         const body = await readJson(req);
         const existing = cfg.providers[body.id];
-        const apiKey = body.apiKey || (existing ? keyFor(body.id) : "");
-        const result = await testProvider({ ...body, apiKey });
+        // A saved key is only ever sent to the address it was saved for: testing
+        // the same provider id against another base URL needs its own key.
+        const sameAddress = existing && sameBase(existing.baseUrl, body.baseUrl || existing.baseUrl);
+        const apiKey = body.apiKey || (existing && sameAddress ? keyFor(body.id) : "");
+        const saved = existing && sameAddress ? { baseUrl: existing.baseUrl, modelsPath: existing.modelsPath, headers: existing.headers } : {};
+        const asked = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined && v !== null && v !== ""));
+        const result = await testProvider({ ...saved, ...asked, apiKey });
         return jsonRes(res, 200, result);
       } catch (e) {
         return jsonRes(res, 400, { ok: false, error: e.message });
@@ -1740,6 +2438,15 @@ const server = http.createServer(async (req, res) => {
         if (body.modelsPath) entry.modelsPath = body.modelsPath;
         if (typeof body.sessionHeader === "string") entry.sessionHeader = body.sessionHeader;
         if (Array.isArray(body.models)) entry.models = body.models.filter(Boolean);
+        // A provider moved to another address loses its saved key (and an
+        // OpenCode-linked token): the old key must never follow it there.
+        if (prev.baseUrl && !sameBase(prev.baseUrl, entry.baseUrl)) {
+          delete entry.apiKey;
+          if (entry.keySource && entry.keySource !== "config") entry.keySource = "config";
+          if (entry.headers && typeof entry.headers === "object") {
+            for (const h of Object.keys(entry.headers)) if (/authorization|api[-_]?key|token|secret|cookie/i.test(h)) delete entry.headers[h];
+          }
+        }
         if (typeof body.apiKey === "string" && body.apiKey.trim() && body.apiKey !== "***") {
           entry.apiKey = body.apiKey.trim();
           entry.keySource = "config";
@@ -1816,10 +2523,8 @@ const server = http.createServer(async (req, res) => {
       status: "ok",
       defaultProvider: cfg.defaultProvider,
       defaultModel: cfg.defaultModel,
-      providers: enabledProviders().map((id) => ({
-        id, label: cfg.providers[id].label, baseUrl: cfg.providers[id].baseUrl,
-        keySource: cfg.providers[id].keySource,
-      })),
+      // No addresses or key sources here: /health needs no token.
+      providers: enabledProviders().map((id) => ({ id, label: cfg.providers[id].label })),
       uptime: Math.round(process.uptime()) + "s",
     }, null, 2));
   }
@@ -1875,48 +2580,80 @@ const server = http.createServer(async (req, res) => {
 
     try {
       const html = fs.readFileSync(path.join(ROOT, "dashboard.html"), "utf8");
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      return res.end(html);
+      // no-store: the page carries this run's dashboard token.
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer" });
+      return res.end(withDashboardToken(html));
     } catch {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      return res.end(renderDashboard({}, list));
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "referrer-policy": "no-referrer" });
+      return res.end(withDashboardToken(renderDashboard({}, list)));
     }
   }
 
   const isMessages = p === "/v1/messages" || p === "/v1/messages/count_tokens";
   const isOpenAI = p === "/v1/chat/completions" || p === "/chat/completions";
+  // OpenAI-style paths get OpenAI-format errors, everything else Anthropic.
+  const openaiStyle = isOpenAI || /(^|\/)(chat|completions|embeddings|responses)(\/|$)/.test(p);
+  const sendError = (status, type, message) => (openaiStyle
+    ? openaiError(res, status, type === "request_too_large" ? "invalid_request_error" : type, message)
+    : anthropicError(res, status, type, message));
 
   if (req.method !== "POST" || (!isMessages && !isOpenAI)) {
-    return anthropicError(res, 404, "not_found_error", "unknown path " + p);
+    return sendError(404, "not_found_error", "unknown path " + p);
   }
 
+  const MAX_BODY = 64 * 1024 * 1024;
   const chunks = [];
   let size = 0;
+  let tooLarge = false;
   req.on("data", (c) => {
     size += c.length;
-    if (size > 64 * 1024 * 1024) { req.destroy(); return; }
+    if (tooLarge) {
+      // Drain the rest so the client can read the 413; give up on absurd sizes.
+      if (size > MAX_BODY * 4) req.destroy();
+      return;
+    }
+    if (size > MAX_BODY) {
+      tooLarge = true;
+      chunks.length = 0;
+      res.setHeader("connection", "close");
+      sendError(413, "request_too_large", "request body is larger than 64 MB");
+      return;
+    }
     chunks.push(c);
   });
   req.on("end", () => {
+    if (tooLarge) return;
     let body;
     try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); }
-    catch (e) { return anthropicError(res, 400, "invalid_request_error", "invalid JSON: " + e.message); }
+    catch (e) { return sendError(400, "invalid_request_error", "invalid JSON: " + e.message); }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return sendError(400, "invalid_request_error", "request body must be a JSON object");
+    }
 
     // stop the upstream call if the client goes away
     const ac = new AbortController();
     res.on("close", () => { if (!res.writableEnded) ac.abort(); });
 
     if (p === "/v1/messages/count_tokens") {
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ input_tokens: estimateTokens(body) }));
+      try {
+        const problem = countTokensProblem(body);
+        if (problem) return anthropicError(res, 400, "invalid_request_error", problem);
+        const n = estimateTokens(body);
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ input_tokens: n }));
+      } catch (e) {
+        log("count_tokens failed: " + (e && e.message));
+        return anthropicError(res, 400, "invalid_request_error", "could not count tokens: " + (e && e.message));
+      }
     }
 
     const task = isOpenAI ? handleOpenAI(req, res, body, ac.signal) : handleMessages(req, res, body, ac.signal);
     task.catch((e) => {
-      log("handler crash:", e && e.message);
-      anthropicError(res, 500, "api_error", String(e && e.message || e));
+      log("handler crash:", e && e.stack || e);
+      sendError(500, isOpenAI ? "server_error" : "api_error", String(e && e.message || e));
     });
   });
+  req.on("error", (e) => { log("request read error: " + (e && e.message)); });
 });
 
 // Auto-detect OpenCode's login at startup (cold config / new PC).
@@ -1960,3 +2697,7 @@ server.listen(PORT, HOST, () => {
 });
 
 process.on("SIGINT", () => { log("stopped"); process.exit(0); });
+
+// One bad request must never take the gateway down: log and keep serving.
+process.on("uncaughtException", (e) => { try { log("uncaught exception: " + ((e && e.stack) || e)); } catch {} });
+process.on("unhandledRejection", (e) => { try { log("unhandled rejection: " + ((e && e.stack) || e)); } catch {} });

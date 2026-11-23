@@ -17,7 +17,7 @@
       "rate": "5-hour limit = 20% of monthly allowance"
     },
     "usage": "none",
-    "notes": "OpenCode app e login thakle key lage na (keySource: opencode-db)."
+    "notes": "No key needed while you are signed in to the OpenCode app (keySource: opencode-db)."
   },
   {
     "id": "openrouter",
@@ -32,11 +32,11 @@
     "free": {
       "available": true,
       "label": "Free models",
-      "detail": "Model id er sheshe :free (jemon deepseek/deepseek-chat:free). Free models er daily request limit.",
-      "rate": "Free: ~50 requests/day (account onujayi)"
+      "detail": "Model ids ending in :free (for example deepseek/deepseek-chat:free). Free models have a daily request limit.",
+      "rate": "Free: ~50 requests/day (depends on the account)"
     },
     "usage": "openrouter",
-    "notes": "Usage/credits live dekhano jay (/auth/key)."
+    "notes": "Live usage and credits are shown (/auth/key)."
   },
   {
     "id": "groq",
@@ -51,10 +51,10 @@
       "available": true,
       "label": "Free tier",
       "detail": "Free tier with per-model requests/day + tokens/min limits. Very fast inference.",
-      "rate": "Per-model RPM/RPD (console e dekho)"
+      "rate": "Per-model RPM/RPD (see the console)"
     },
     "usage": "none",
-    "notes": "Rate limit headers (x-ratelimit-*) response e ashe."
+    "notes": "Rate-limit headers (x-ratelimit-*) come with each response."
   },
   {
     "id": "gemini",
@@ -68,7 +68,7 @@
     "free": {
       "available": true,
       "label": "Free tier",
-      "detail": "Free API key e per-model RPM/RPD limit (Gemini Flash models).",
+      "detail": "A free API key has per-model RPM/RPD limits (Gemini Flash models).",
       "rate": "Free: limited RPM/RPD per model"
     },
     "usage": "none",
@@ -86,7 +86,7 @@
     "free": {
       "available": true,
       "label": "Experiment (free) tier",
-      "detail": "Free 'Experiment' plan e rate-limited access, phone verify lage.",
+      "detail": "Rate-limited access on the free 'Experiment' plan; phone verification required.",
       "rate": "1 req/sec · limited monthly tokens"
     },
     "usage": "none",
@@ -104,7 +104,7 @@
     "free": {
       "available": false,
       "label": "Paid (cheap)",
-      "detail": "Pay as you go, very low token price. Signup e maje maje bonus credit.",
+      "detail": "Pay as you go, very low token price. Sign-up sometimes includes bonus credit.",
       "rate": "No hard free tier"
     },
     "usage": "none",
@@ -122,7 +122,7 @@
     "free": {
       "available": true,
       "label": "Free endpoints + credit",
-      "detail": "Kichhu model (Llama/Qwen) free endpoints e cholе; signup credit o dey.",
+      "detail": "Some models (Llama/Qwen) run on free endpoints; sign-up credit is included.",
       "rate": "Free endpoints rate-limited"
     },
     "usage": "none",
@@ -140,7 +140,7 @@
     "free": {
       "available": true,
       "label": "Free tier",
-      "detail": "Free tier: ~1M tokens/day (model onujayi), extremely fast.",
+      "detail": "Free tier: ~1M tokens/day (depends on the model), extremely fast.",
       "rate": "Free: daily token cap"
     },
     "usage": "none",
@@ -162,7 +162,7 @@
       "rate": "Credit based"
     },
     "usage": "none",
-    "notes": "Model id prefix dey (meta/llama-3.3-70b-instruct)"
+    "notes": "Model ids include a prefix (meta/llama-3.3-70b-instruct)"
   },
   {
     "id": "github-models",
@@ -176,11 +176,11 @@
     "free": {
       "available": true,
       "label": "Free with GitHub",
-      "detail": "GitHub PAT diye free rate-limited access (GPT, Llama, Phi, Mistral...)",
+      "detail": "Free, rate-limited access with a GitHub PAT (GPT, Llama, Phi, Mistral...)",
       "rate": "Per-model requests/min + day"
     },
     "usage": "none",
-    "notes": "Fine-grained PAT e 'Models: read' permission dao. Model id: openai/gpt-4o-mini type."
+    "notes": "Give the fine-grained PAT the 'Models: read' permission. Model ids look like openai/gpt-4o-mini."
   },
   {
     "id": "fireworks",
@@ -194,7 +194,7 @@
     "free": {
       "available": true,
       "label": "Signup credit",
-      "detail": "Notun account e free credit ($1 level).",
+      "detail": "Free credit for new accounts (about $1).",
       "rate": "Credit based"
     },
     "usage": "none",
@@ -212,11 +212,11 @@
     "free": {
       "available": true,
       "label": "Free / local",
-      "detail": "Own PC te cholе, kono limit nei (hardware onujayi).",
+      "detail": "Runs on your own PC; no limits beyond your hardware.",
       "rate": "Unlimited (local)"
     },
     "usage": "none",
-    "notes": "ollama serve chalu thakte hobe."
+    "notes": "Keep `ollama serve` running."
   },
   {
     "id": "lmstudio",
@@ -230,11 +230,11 @@
     "free": {
       "available": true,
       "label": "Free / local",
-      "detail": "Local server, kono cost nei.",
+      "detail": "Local server, no cost.",
       "rate": "Unlimited (local)"
     },
     "usage": "none",
-    "notes": "LM Studio te server start koro (port 1234)."
+    "notes": "Start the server in LM Studio (port 1234)."
   },
   {
     "id": "vercel",
@@ -249,11 +249,11 @@
       "available": true,
       "zeroOnly": true,
       "label": "Free models + monthly credit",
-      "detail": "Zero-price -free model gulo key diye free; sathe monthly free credit (payment method lagte pare).",
-      "rate": "Free tier e per-model rate limit"
+      "detail": "Zero-price -free models are free with a key, plus monthly free credit (a payment method may be required).",
+      "rate": "Per-model rate limits on the free tier"
     },
     "usage": "none",
-    "notes": "Base URL: https://ai-gateway.vercel.sh/v1. Free model id gulo -free suffix e hoy."
+    "notes": "Base URL: https://ai-gateway.vercel.sh/v1. Free model ids end in -free."
   },
   {
     "id": "kilo",
@@ -269,10 +269,10 @@
       "zeroOnly": true,
       "anonymous": true,
       "label": "Free models",
-      "detail": "Model id er sheshe :free / -free gulo zero-cost. Key chara o free model chole (200 req/hour), key dile beshi.",
-      "rate": "Anonymous: 200 req/hour; key e per-account limit"
+      "detail": "Model ids ending in :free / -free cost nothing. Free models work even without a key (200 requests/hour); a key raises the limit.",
+      "rate": "Anonymous: 200 req/hour; with a key, a per-account limit"
     },
     "usage": "none",
-    "notes": "Base URL: https://ai-gateway.kilo.ai/api/v1. kilo-auto/free ekta free router."
+    "notes": "Base URL: https://ai-gateway.kilo.ai/api/v1. kilo-auto/free is a free router."
   }
 ]

@@ -125,6 +125,20 @@ const LOADING_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
   <div class="s">starting local gateway…</div>
 </div></body></html>`;
 
+function isGatewayUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" && (u.host === `127.0.0.1:${PORT}` || u.host === `localhost:${PORT}`);
+  } catch { return false; }
+}
+function openInBrowser(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === "https:" || u.protocol === "http:") shell.openExternal(u.href);
+    else logLine("blocked a link with protocol " + u.protocol);
+  } catch {}
+}
+
 function loadDashboard() {
   if (!win) return;
   win.loadURL(BASE + "/?refresh=1").catch((e) => logLine("load failed: " + e.message));
@@ -146,9 +160,12 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
       preload: path.join(__dirname, "preload.js"),
     },
   });
+  // The dashboard needs no camera, microphone, notifications or other permissions.
+  try { win.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false)); } catch {}
 
   win.once("ready-to-show", () => win.show());
   win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(LOADING_HTML))
@@ -182,10 +199,19 @@ function createWindow() {
     if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
   });
 
+  // Only the gateway's own pages may open inside the app (exact origin, not a
+  // prefix: http://127.0.0.1.evil.com is a different site). Other links open in
+  // the user's browser, and only when they are http(s) - never file:, ms-* or
+  // other protocol handlers.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("http://127.0.0.1")) return { action: "allow" };
-    shell.openExternal(url);
+    if (isGatewayUrl(url)) return { action: "allow" };
+    openInBrowser(url);
     return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    if (isGatewayUrl(url) || url.startsWith("data:text/html")) return;
+    event.preventDefault();
+    openInBrowser(url);
   });
 
   win.on("close", (e) => {

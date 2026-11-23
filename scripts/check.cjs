@@ -16,6 +16,11 @@ const SECRET = [
   /xox[abpr]-[A-Za-z0-9-]{20,}/,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /"(?:apiKey|api_key|token|secret)"\s*:\s*"(?!sk-or-v1-\.\.\.|dummy|sk-or-v1-x+)[^"]{16,}"/i,
+  // keys kept in custom headers, and bearer tokens written out anywhere
+  /"(?:authorization|x-api-key|api-key)"\s*:\s*"(?!dummy)[^"]{16,}"/i,
+  /\bBearer\s+[A-Za-z0-9._~+/-]{24,}/,
+  /\b(?:glpat-|npm_|hf_|r8_|xai-)[A-Za-z0-9_-]{20,}/,
+  /\bEAA[A-Za-z0-9]{40,}/,
 ]
 const SKIP = new Set(["node_modules", "dist", ".git", "assets"])
 const TEXT = /\.(c?js|mjs|json|html|txt|md|bat|vbs|ya?ml|cmd|ps1)$/i
