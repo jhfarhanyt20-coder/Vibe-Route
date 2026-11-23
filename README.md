@@ -22,7 +22,7 @@ The best-known use: **run Claude Code with your OpenAI key** (or any other provi
 - **OpenCode auto-detect** — if OpenCode is installed and signed in on the PC, Vibe Route adds it as a provider by itself and keeps its model list in sync, reading the live token from OpenCode's own files (read-only). No key to copy, and the token is never shown in the browser.
 - **Long agent runs** — a 10-minute request timeout by default (`timeoutMs` in the config).
 - **Runs quietly in the tray** — closing the window keeps the gateway running; the tray menu has Dashboard, Restart gateway, Open data folder, Edit config.json, **Check for updates** and Quit.
-- **Updates itself** — the installed app checks GitHub Releases, downloads a new version in the background and asks you to restart. You can also check by hand from the tray.
+- **Updates itself** — the installed app checks GitHub Releases, downloads a new version in the background and asks you to restart. The **Settings** button (gear) in the title bar shows your version and has **Check for updates**, **Update now** and **Install & restart**, plus a switch to turn automatic downloads off (then nothing downloads until you press Update now). The same actions are in the tray menu.
 - **Light mode** — `start-light.bat` runs only the gateway and opens the dashboard in your browser (no Electron window; needs Node.js).
 - **Your keys stay on your PC** — they live only in your own `config.json` in the app's data folder. The installer never contains a key (the build removes them and the release is refused if one is found), and this repository contains none.
 

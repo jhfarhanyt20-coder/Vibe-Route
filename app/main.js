@@ -241,21 +241,60 @@ function showWindow() {
 }
 
 // ---- updates: from the public GitHub Releases of Vibe Route ----
-// Installed copies check now and then and download a new version by
-// themselves; "Check for updates" in the tray checks at once, and
-// "Restart to update" installs it.
+// Installed copies check now and then. With "Download updates automatically"
+// on (the default) a new version downloads by itself; with it off, nothing is
+// downloaded until you press "Update now". Both the tray menu and the
+// dashboard's Settings card offer Check for updates, Update now and
+// Install & restart. The preference is kept in app-settings.json.
+const SETTINGS = path.join(DATA_DIR, "app-settings.json");
+function readSettings() {
+  try { const s = JSON.parse(fs.readFileSync(SETTINGS, "utf8")); return s && typeof s === "object" ? s : {}; } catch { return {}; }
+}
+function writeSettings(patch) {
+  const next = Object.assign(readSettings(), patch);
+  try { fs.writeFileSync(SETTINGS, JSON.stringify(next, null, 2)); } catch (e) { logLine("settings not saved: " + e.message); }
+  return next;
+}
+const autoDownloadOn = () => readSettings().autoDownloadUpdates !== false;
+
 let updater = null;
 let updateState = { status: "idle", version: null };
+let userAskedDownload = false; // "Update now" pressed: the dashboard shows Install & restart, no extra dialog
+function setUpdateState(next) {
+  updateState = Object.assign({ status: "idle", version: null }, next);
+  refreshTray();
+  if (win && !win.isDestroyed()) win.webContents.send("update:changed", publicUpdateState());
+}
+function publicUpdateState() {
+  return {
+    status: updateState.status,
+    version: updateState.version || null,
+    percent: updateState.percent == null ? null : updateState.percent,
+    error: updateState.error || null,
+    current: app.getVersion(),
+    autoDownload: autoDownloadOn(),
+    available: Boolean(updater),
+  };
+}
 function setupUpdater() {
   if (!app.isPackaged) return;
   try { updater = require("electron-updater").autoUpdater; } catch (e) { logLine("updater unavailable: " + e.message); return; }
-  updater.autoDownload = true;
+  updater.autoDownload = autoDownloadOn();
   updater.autoInstallOnAppQuit = true;
-  updater.on("update-available", (info) => { updateState = { status: "downloading", version: info && info.version }; refreshTray(); });
-  updater.on("update-not-available", () => { updateState = { status: "latest", version: app.getVersion() }; refreshTray(); });
+  updater.on("update-available", (info) => {
+    const v = info && info.version;
+    setUpdateState(updater.autoDownload || userAskedDownload ? { status: "downloading", version: v, percent: 0 } : { status: "available", version: v });
+  });
+  updater.on("update-not-available", () => setUpdateState({ status: "latest", version: app.getVersion() }));
+  updater.on("download-progress", (p) => {
+    if (updateState.status === "ready") return;
+    setUpdateState({ status: "downloading", version: updateState.version, percent: Math.max(0, Math.min(100, Math.round((p && p.percent) || 0))) });
+  });
   updater.on("update-downloaded", async (info) => {
-    updateState = { status: "ready", version: info && info.version };
-    refreshTray();
+    const asked = userAskedDownload;
+    userAskedDownload = false;
+    setUpdateState({ status: "ready", version: info && info.version });
+    if (asked && win && win.isVisible()) return; // the dashboard already shows Install & restart
     const { response } = await dialog.showMessageBox({
       type: "info",
       title: "Vibe Route update",
@@ -267,42 +306,87 @@ function setupUpdater() {
     });
     if (response === 0) installUpdate();
   });
-  updater.on("error", (e) => { logLine("update error: " + (e && e.message)); updateState = { status: "error", version: null }; refreshTray(); });
+  updater.on("error", (e) => {
+    logLine("update error: " + (e && e.message));
+    userAskedDownload = false;
+    setUpdateState({ status: "error", error: String((e && e.message) || e || "update failed").slice(0, 200) });
+  });
   setTimeout(() => checkForUpdates(false), 15000);
   setInterval(() => checkForUpdates(false), 6 * 60 * 60 * 1000);
 }
-async function checkForUpdates(manual) {
+// manual: show a dialog with the result (tray). quiet: the dashboard shows it itself.
+async function checkForUpdates(manual, quiet) {
   if (!updater) {
-    if (manual) dialog.showMessageBox({ type: "info", title: "Vibe Route", message: app.isPackaged ? "Updates are not available in this copy." : "Updates work in the installed app.", detail: "Download the latest version from github.com/jhfarhanyt20-coder/Vibe-Route/releases." });
-    return;
+    if (manual && !quiet) dialog.showMessageBox({ type: "info", title: "Vibe Route", message: app.isPackaged ? "Updates are not available in this copy." : "Updates work in the installed app.", detail: "Download the latest version from github.com/jhfarhanyt20-coder/Vibe-Route/releases." });
+    return publicUpdateState();
   }
+  if (["checking", "downloading", "ready"].includes(updateState.status)) return publicUpdateState();
   try {
-    updateState = { status: "checking", version: null };
-    refreshTray();
+    updater.autoDownload = autoDownloadOn() || userAskedDownload;
+    setUpdateState({ status: "checking" });
     const r = await updater.checkForUpdates();
-    if (!manual) return;
     const latest = r && r.updateInfo && r.updateInfo.version;
-    if (latest && latest !== app.getVersion()) dialog.showMessageBox({ type: "info", title: "Vibe Route", message: `Version ${latest} is available.`, detail: "It is downloading now; Vibe Route asks you to restart when it is ready." });
+    if (latest && latest === app.getVersion() && updateState.status === "checking") setUpdateState({ status: "latest", version: latest });
+    if (!manual || quiet) return publicUpdateState();
+    if (latest && latest !== app.getVersion()) dialog.showMessageBox({ type: "info", title: "Vibe Route", message: `Version ${latest} is available.`, detail: updater.autoDownload ? "It is downloading now; Vibe Route asks you to restart when it is ready." : "Choose Update now in the tray menu or in the dashboard's Settings to download it." });
     else dialog.showMessageBox({ type: "info", title: "Vibe Route", message: "You have the latest version.", detail: `Vibe Route ${app.getVersion()}` });
   } catch (e) {
     logLine("update check failed: " + e.message);
-    updateState = { status: "error", version: null };
-    refreshTray();
-    if (manual) dialog.showMessageBox({ type: "warning", title: "Vibe Route", message: "Could not check for updates.", detail: String(e.message || e).slice(0, 300) });
+    setUpdateState({ status: "error", error: String(e.message || e).slice(0, 200) });
+    if (manual && !quiet) dialog.showMessageBox({ type: "warning", title: "Vibe Route", message: "Could not check for updates.", detail: String(e.message || e).slice(0, 300) });
   }
+  return publicUpdateState();
+}
+// "Update now": download the new version even when automatic download is off,
+// without changing that saved preference.
+async function downloadUpdateNow() {
+  if (!updater) return publicUpdateState();
+  if (updateState.status === "downloading" || updateState.status === "ready") return publicUpdateState();
+  userAskedDownload = true;
+  try {
+    if (updateState.status !== "available") {
+      await checkForUpdates(true, true); // with userAskedDownload set, an update found here downloads at once
+      if (updateState.status !== "available") { if (updateState.status !== "downloading") userAskedDownload = false; return publicUpdateState(); }
+    }
+    setUpdateState({ status: "downloading", version: updateState.version, percent: 0 });
+    await updater.downloadUpdate();
+  } catch (e) {
+    userAskedDownload = false;
+    logLine("update download failed: " + e.message);
+    setUpdateState({ status: "error", error: String(e.message || e).slice(0, 200) });
+  } finally {
+    updater.autoDownload = autoDownloadOn();
+  }
+  return publicUpdateState();
 }
 function installUpdate() {
-  if (!updater) return;
+  if (!updater || updateState.status !== "ready") return;
   quitting = true;
   stopGateway();
   setTimeout(() => updater.quitAndInstall(false, true), 300);
 }
 function updateMenuItem() {
-  if (updateState.status === "ready") return { label: `Restart to update (${updateState.version || "new version"})`, click: installUpdate };
-  if (updateState.status === "downloading") return { label: `Downloading update ${updateState.version || ""}…`, enabled: false };
+  if (updateState.status === "ready") return { label: `Install & restart (${updateState.version || "new version"})`, click: installUpdate };
+  if (updateState.status === "downloading") return { label: `Downloading update ${updateState.version || ""}${updateState.percent ? ` (${updateState.percent}%)` : "…"}`, enabled: false };
   if (updateState.status === "checking") return { label: "Checking for updates…", enabled: false };
+  if (updateState.status === "available") return { label: `Update now (${updateState.version || "new version"})`, click: () => downloadUpdateNow() };
   return { label: "Check for updates", click: () => checkForUpdates(true) };
 }
+// Only the dashboard (the gateway page in our own window) may drive updates.
+function fromDashboard(e) {
+  return Boolean(win && e && e.sender === win.webContents && e.senderFrame && isGatewayUrl(e.senderFrame.url));
+}
+ipcMain.handle("update:state", (e) => (fromDashboard(e) ? publicUpdateState() : null));
+ipcMain.handle("update:check", (e) => (fromDashboard(e) ? checkForUpdates(true, true) : null));
+ipcMain.handle("update:download", (e) => (fromDashboard(e) ? downloadUpdateNow() : null));
+ipcMain.handle("update:install", (e) => { if (fromDashboard(e)) installUpdate(); return null; });
+ipcMain.handle("update:set-auto", (e, on) => {
+  if (!fromDashboard(e)) return null;
+  writeSettings({ autoDownloadUpdates: Boolean(on) });
+  if (updater) updater.autoDownload = autoDownloadOn();
+  setUpdateState(updateState);
+  return publicUpdateState();
+});
 function refreshTray() {
   if (tray) tray.setContextMenu(buildTrayMenu());
 }
