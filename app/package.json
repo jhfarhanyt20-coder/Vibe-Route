@@ -5,7 +5,7 @@
   "description": "Local AI gateway: one endpoint for many providers, OpenAI + Anthropic compatible",
   "main": "main.js",
   "private": true,
-  "author": "Farhan",
+  "author": "Jamil Hussain (JH Farhan)",
   "scripts": {
     "start": "electron .",
     "dist": "node build.cjs",
@@ -16,6 +16,7 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
+    "copyright": "Copyright (c) 2026 Jamil Hussain (JH Farhan), trading as VibeCoder AI. All rights reserved.",
     "appId": "com.viberoute.app",
     "productName": "Vibe Route",
     "directories": {
