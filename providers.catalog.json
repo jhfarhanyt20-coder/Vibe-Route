@@ -28,7 +28,7 @@
     "signup": "https://openrouter.ai/keys",
     "auth": "bearer",
     "keyless": false,
-    "headers": { "HTTP-Referer": "http://localhost", "X-Title": "Vibe Route" },
+    "headers": { "HTTP-Referer": "http://localhost", "X-Title": "BD Route" },
     "free": {
       "available": true,
       "label": "Free models",

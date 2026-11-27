@@ -1,7 +1,7 @@
 @echo off
-title Vibe Route
+title BD Route
 cd /d "%~dp0"
-echo Starting Vibe Route...
+echo Starting BD Route...
 echo.
 node proxy.cjs
 echo.

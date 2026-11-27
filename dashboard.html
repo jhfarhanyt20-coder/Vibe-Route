@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Vibe Route</title>
+<title>BD Route</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root{
@@ -145,7 +145,7 @@
       <circle cx="6" cy="6" r="2.6" fill="#3ddc84"/><circle cx="18" cy="12" r="2.6" fill="#3ddc84"/><circle cx="6" cy="18" r="2.6" fill="#3ddc84"/>
       <path d="M8.3 7 15.6 11M15.6 13 8.3 17" stroke="#3ddc84" stroke-width="2" stroke-linecap="round"/>
     </svg>
-    <span>Vibe Route</span><small>gateway</small>
+    <span>BD Route</span><small>gateway</small>
   </div>
   <div class="tb-spacer"></div>
   <div class="tb-status"><span class="pulse"></span><span id="tbStatus">starting…</span></div>
@@ -257,7 +257,7 @@
           <path d="M8.3 7 15.6 11M15.6 13 8.3 17" stroke="#3ddc84" stroke-width="2" stroke-linecap="round"/>
         </svg>
         <div class="sp-app-text">
-          <div class="sp-app-name">Vibe Route</div>
+          <div class="sp-app-name">BD Route</div>
           <div class="sp-app-ver">Version <span id="updCurrent">-</span></div>
         </div>
         <span class="sp-pill" id="updPill"><i></i><span id="updPillText">Not checked</span></span>
@@ -273,7 +273,7 @@
       <label class="sp-toggle" for="updAuto">
         <span class="sp-toggle-text">
           <span class="sp-toggle-name">Download updates automatically</span>
-          <span class="sp-toggle-hint">When off, Vibe Route tells you about a new version and downloads it only when you press Update now.</span>
+          <span class="sp-toggle-hint">When off, BD Route tells you about a new version and downloads it only when you press Update now.</span>
         </span>
         <input type="checkbox" id="updAuto" class="sp-switch">
       </label>
@@ -378,7 +378,7 @@ ANTHROPIC_MODEL=auto   (or any model below)`;
       for other apps, subscribe to Go or use the Kilo / Vercel free models.`;
   } else if (oc.installed) {
     $("opencodeStatus").innerHTML = `<span class="badge warn">OpenCode installed</span>
-      but not signed in — sign in to the OpenCode app, then restart Vibe Route.`;
+      but not signed in — sign in to the OpenCode app, then restart BD Route.`;
   } else {
     $("opencodeStatus").innerHTML = `<span class="badge off">OpenCode not found</span>
       — add a provider below with its API key to get started.`;

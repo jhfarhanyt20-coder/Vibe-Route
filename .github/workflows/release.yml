@@ -1,4 +1,4 @@
-name: Release Vibe Route
+name: Release BD Route
 
 # Runs on a version tag (v1.3.8, ...): safety check, build the installer, then
 # publish ONE release with the installer, its blockmap and latest.yml (what the
@@ -69,7 +69,7 @@ jobs:
           foreach ($f in $files) { if (-not (Test-Path $f)) { throw "Missing build output: $f" } }
           gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) { gh release upload $env:GITHUB_REF_NAME @files --clobber --repo $env:GITHUB_REPOSITORY }
-          else { gh release create $env:GITHUB_REF_NAME @files --title "Vibe Route $v" --notes "Download **Vibe-Route-Setup-$v.exe** and run it. Installed copies update by themselves. See the README for what Vibe Route does." --verify-tag --repo $env:GITHUB_REPOSITORY }
+          else { gh release create $env:GITHUB_REF_NAME @files --title "BD Route $v" --notes "Download **Vibe-Route-Setup-$v.exe** and run it. Installed copies update by themselves. See the README for what BD Route does." --verify-tag --repo $env:GITHUB_REPOSITORY }
 
       - name: Verify the release has every asset
         env:

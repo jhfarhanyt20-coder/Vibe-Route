@@ -1,4 +1,4 @@
-Vibe Route  (one local gateway for many AI providers)
+BD Route  (one local gateway for many AI providers)
 =====================================================
 One local address that speaks the Anthropic Messages API and the OpenAI Chat
 Completions API, in front of as many providers as you like (OpenAI, OpenRouter,
@@ -16,7 +16,7 @@ FILES
   start.bat                        start with a console window
   start-hidden.vbs                 start in the background (no window)
   start-light.bat                  gateway only, dashboard opens in your browser
-  set-claude-code-env.bat          points Claude Code at Vibe Route
+  set-claude-code-env.bat          points Claude Code at BD Route
   models-cache.json                model info cache (created automatically)
   vibe-route.log                   log
 
@@ -32,7 +32,7 @@ FILES
 2) CLAUDE CODE / CLAUDE DEV
 ---------------------------
   Base URL : http://127.0.0.1:8787
-  API key  : any value (for example: dummy) - your real keys stay in Vibe Route
+  API key  : any value (for example: dummy) - your real keys stay in BD Route
   Model    : any model id from the dashboard (or "auto")
 
   Double-click set-claude-code-env.bat once, or set it by hand:
@@ -74,7 +74,7 @@ FILES
 
 5) NOTES
 --------
-  - OpenCode Go: with "keySource": "opencode-db" Vibe Route reads OpenCode's live
+  - OpenCode Go: with "keySource": "opencode-db" BD Route reads OpenCode's live
     token (read-only), so you never copy a key. Turn this off with
     "autoDetectOpencode": false; "autoSyncOpencode": false stops the model sync.
     OpenCode's free-tier models only work inside the OpenCode app.
@@ -95,4 +95,4 @@ FILES
 
 7) START WITH WINDOWS
 ---------------------
-  Win+R -> shell:startup -> Enter, then put a shortcut to Vibe Route there.
+  Win+R -> shell:startup -> Enter, then put a shortcut to BD Route there.

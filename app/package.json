@@ -1,7 +1,7 @@
 {
   "name": "vibe-route",
-  "productName": "Vibe Route",
-  "version": "1.3.11",
+  "productName": "BD Route",
+  "version": "1.3.12",
   "description": "Local AI gateway: one endpoint for many providers, OpenAI + Anthropic compatible",
   "main": "main.js",
   "private": true,
@@ -18,7 +18,7 @@
   "build": {
     "copyright": "Copyright (c) 2026 Jamil Hussain (JH Farhan), trading as VibeCoder AI. All rights reserved.",
     "appId": "com.viberoute.app",
-    "productName": "Vibe Route",
+    "productName": "BD Route",
     "directories": {
       "output": "../dist",
       "buildResources": "."
@@ -60,7 +60,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Vibe Route"
+      "shortcutName": "BD Route"
     },
     "publish": [
       {

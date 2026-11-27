@@ -1,4 +1,4 @@
-// Vibe Route - desktop app shell
+// BD Route - desktop app shell
 // Starts the local gateway (proxy.cjs from the parent folder) and shows its
 // dashboard in a native window. Closing the window keeps the gateway running
 // in the tray.
@@ -8,6 +8,11 @@ const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
+
+// The app was called Vibe Route before it became BD Route. Its settings and
+// provider keys live in "%APPDATA%\Vibe Route": keep using that folder so the
+// rename never loses them (Electron would otherwise pick "BD Route").
+app.setPath("userData", path.join(app.getPath("appData"), "Vibe Route"));
 
 const ASSET_DIR = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
 const DATA_DIR = app.isPackaged ? app.getPath("userData") : path.resolve(__dirname, "..");
@@ -121,7 +126,7 @@ const LOADING_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
   .t{font-size:15px;letter-spacing:.3px}
   .s{margin-top:8px;color:#8ea0b5;font-size:12px}
 </style></head><body><div class="box">
-  <div class="t"><span class="dot"></span>Vibe Route</div>
+  <div class="t"><span class="dot"></span>BD Route</div>
   <div class="s">starting local gateway…</div>
 </div></body></html>`;
 
@@ -151,7 +156,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 620,
     backgroundColor: "#0b0f16",
-    title: "Vibe Route",
+    title: "BD Route",
     icon: fs.existsSync(ICON) ? ICON : undefined,
     frame: false,
     show: false,
@@ -220,7 +225,7 @@ function createWindow() {
       win.hide();
       if (!trayHintShown) {
         trayHintShown = true;
-        quietNote("Vibe Route is still running", "It keeps your gateway on in the tray. Right-click the tray icon and choose Quit to exit.");
+        quietNote("BD Route is still running", "It keeps your gateway on in the tray. Right-click the tray icon and choose Quit to exit.");
       }
     }
   });
@@ -240,7 +245,7 @@ ipcMain.on("win:close", () => { if (win) win.hide(); });
 ipcMain.handle("win:is-max", () => (win ? win.isMaximized() : false));
 
 // Quiet notes, the same in every VibeCoder app: a silent Windows note (no
-// system sound) with Vibe Route's own soft two-note chime, gone after a few
+// system sound) with BD Route's own soft two-note chime, gone after a few
 // seconds. Used only when the window is not in front and something matters.
 const CHIME_JS = `(() => { try {
   const C = window.AudioContext || window.webkitAudioContext; if (!C) return 0;
@@ -270,7 +275,7 @@ function showWindow() {
   else { win.show(); win.focus(); }
 }
 
-// ---- updates: from the public GitHub Releases of Vibe Route ----
+// ---- updates: from the public GitHub Releases of BD Route ----
 // Installed copies check now and then. With "Download updates automatically"
 // on (the default) a new version downloads by itself; with it off, nothing is
 // downloaded until you press "Update now". Both the tray menu and the
@@ -327,12 +332,12 @@ function setupUpdater() {
     if (asked && win && win.isVisible()) return; // the dashboard already shows Install & restart
     // In the background: a quiet note instead of a pop-up that steals focus.
     if (!win || !win.isVisible() || win.isMinimized()) {
-      if (quietNote("Vibe Route update ready", `Version ${updateState.version || ""} is downloaded. Click to open Vibe Route and restart to install.`)) return;
+      if (quietNote("BD Route update ready", `Version ${updateState.version || ""} is downloaded. Click to open BD Route and restart to install.`)) return;
     }
     const { response } = await dialog.showMessageBox({
       type: "info",
-      title: "Vibe Route update",
-      message: `Vibe Route ${updateState.version || ""} is ready to install.`,
+      title: "BD Route update",
+      message: `BD Route ${updateState.version || ""} is ready to install.`,
       detail: "Restart now to update. Your settings and keys stay as they are.",
       buttons: ["Restart now", "Later"],
       defaultId: 0,
@@ -351,7 +356,7 @@ function setupUpdater() {
 // manual: show a dialog with the result (tray). quiet: the dashboard shows it itself.
 async function checkForUpdates(manual, quiet) {
   if (!updater) {
-    if (manual && !quiet) dialog.showMessageBox({ type: "info", title: "Vibe Route", message: app.isPackaged ? "Updates are not available in this copy." : "Updates work in the installed app.", detail: "Download the latest version from github.com/jhfarhanyt20-coder/Vibe-Route/releases." });
+    if (manual && !quiet) dialog.showMessageBox({ type: "info", title: "BD Route", message: app.isPackaged ? "Updates are not available in this copy." : "Updates work in the installed app.", detail: "Download the latest version from github.com/jhfarhanyt20-coder/Vibe-Route/releases." });
     return publicUpdateState();
   }
   if (["checking", "downloading", "ready"].includes(updateState.status)) return publicUpdateState();
@@ -362,12 +367,12 @@ async function checkForUpdates(manual, quiet) {
     const latest = r && r.updateInfo && r.updateInfo.version;
     if (latest && latest === app.getVersion() && updateState.status === "checking") setUpdateState({ status: "latest", version: latest });
     if (!manual || quiet) return publicUpdateState();
-    if (latest && latest !== app.getVersion()) dialog.showMessageBox({ type: "info", title: "Vibe Route", message: `Version ${latest} is available.`, detail: updater.autoDownload ? "It is downloading now; Vibe Route asks you to restart when it is ready." : "Choose Update now in the tray menu or in the dashboard's Settings to download it." });
-    else dialog.showMessageBox({ type: "info", title: "Vibe Route", message: "You have the latest version.", detail: `Vibe Route ${app.getVersion()}` });
+    if (latest && latest !== app.getVersion()) dialog.showMessageBox({ type: "info", title: "BD Route", message: `Version ${latest} is available.`, detail: updater.autoDownload ? "It is downloading now; BD Route asks you to restart when it is ready." : "Choose Update now in the tray menu or in the dashboard's Settings to download it." });
+    else dialog.showMessageBox({ type: "info", title: "BD Route", message: "You have the latest version.", detail: `BD Route ${app.getVersion()}` });
   } catch (e) {
     logLine("update check failed: " + e.message);
     setUpdateState({ status: "error", error: String(e.message || e).slice(0, 200) });
-    if (manual && !quiet) dialog.showMessageBox({ type: "warning", title: "Vibe Route", message: "Could not check for updates.", detail: String(e.message || e).slice(0, 300) });
+    if (manual && !quiet) dialog.showMessageBox({ type: "warning", title: "BD Route", message: "Could not check for updates.", detail: String(e.message || e).slice(0, 300) });
   }
   return publicUpdateState();
 }
@@ -431,7 +436,7 @@ function createTray() {
   if (fs.existsSync(ICON)) img = nativeImage.createFromPath(ICON);
   if (!img || img.isEmpty()) img = nativeImage.createFromDataURL(FALLBACK_ICON);
   tray = new Tray(img.resize({ width: 16, height: 16 }));
-  tray.setToolTip("Vibe Route");
+  tray.setToolTip("BD Route");
   tray.setContextMenu(buildTrayMenu());
   tray.on("double-click", showWindow);
 }
@@ -481,7 +486,7 @@ if (!gotLock) {
     else {
       dialog.showMessageBox({
         type: "warning",
-        title: "Vibe Route",
+        title: "BD Route",
         message: "Gateway slow to start",
         detail: `The local gateway on ${BASE} did not answer yet. Check app.log / vibe-route.log.\n\nYou can retry from the tray menu -> Restart gateway.`,
       });

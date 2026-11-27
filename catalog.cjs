@@ -1,5 +1,5 @@
 /*
- * Model catalog for Vibe Route - multi provider.
+ * Model catalog for BD Route - multi provider.
  *
  * For every provider in config.json it pulls the real model list
  * (context window, max output, vision, tools, reasoning), normalizes the

@@ -1,5 +1,5 @@
 @echo off
-echo Setting Claude Code environment for Vibe Route (current user)...
+echo Setting Claude Code environment for BD Route (current user)...
 setx ANTHROPIC_BASE_URL "http://127.0.0.1:8787"
 setx ANTHROPIC_AUTH_TOKEN "dummy"
 setx ANTHROPIC_MODEL "claude-sonnet-4-5"

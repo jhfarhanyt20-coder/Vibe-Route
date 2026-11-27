@@ -1,8 +1,8 @@
-# Vibe Route
+# BD Route
 
-**One local gateway for all your AI providers.** Vibe Route runs on your Windows PC and gives every AI app one address — `http://127.0.0.1:8787` — that speaks **both the Anthropic API and the OpenAI API**. Behind it you connect as many providers as you like (OpenAI, OpenRouter, Groq, Gemini, DeepSeek, Mistral, local Ollama / LM Studio and more) and pick any of their models from one dashboard.
+**One local gateway for all your AI providers.** BD Route runs on your Windows PC and gives every AI app one address — `http://127.0.0.1:8787` — that speaks **both the Anthropic API and the OpenAI API**. Behind it you connect as many providers as you like (OpenAI, OpenRouter, Groq, Gemini, DeepSeek, Mistral, local Ollama / LM Studio and more) and pick any of their models from one dashboard.
 
-The best-known use: **run Claude Code with your OpenAI key** (or any other provider). Claude Code only speaks the Anthropic format; Vibe Route translates it to the OpenAI format on the fly — streaming, tool calls (read / edit / bash) and all.
+The best-known use: **run Claude Code with your OpenAI key** (or any other provider). Claude Code only speaks the Anthropic format; BD Route translates it to the OpenAI format on the fly — streaming, tool calls (read / edit / bash) and all.
 
 **[⬇ Download the latest installer](https://github.com/jhfarhanyt20-coder/Vibe-Route/releases/latest)** · Windows 10 / 11 (64-bit) · free · updates itself
 
@@ -19,7 +19,7 @@ The best-known use: **run Claude Code with your OpenAI key** (or any other provi
 - **Choose a model three ways** — `provider/model` (`openai/gpt-4.1`), a plain model id (goes to your default provider), or an **alias**: map the model names your app asks for (for example `claude-sonnet-4-5`) to any provider and model you want.
 - **Dashboard app** — add, test and remove providers; see every model with its context size, vision and tool support; add one model or **all models** of a provider in one click; **Test** checks the key and the models endpoint.
 - **Free models load by themselves** — save a provider with its key and its free models are listed at once. Kilo Gateway's free models work even without a key.
-- **OpenCode auto-detect** — if OpenCode is installed and signed in on the PC, Vibe Route adds it as a provider by itself and keeps its model list in sync, reading the live token from OpenCode's own files (read-only). No key to copy, and the token is never shown in the browser.
+- **OpenCode auto-detect** — if OpenCode is installed and signed in on the PC, BD Route adds it as a provider by itself and keeps its model list in sync, reading the live token from OpenCode's own files (read-only). No key to copy, and the token is never shown in the browser.
 - **Long agent runs** — a 10-minute request timeout by default (`timeoutMs` in the config).
 - **Runs quietly in the tray** — closing the window keeps the gateway running; the tray menu has Dashboard, Restart gateway, Open data folder, Edit config.json, **Check for updates** and Quit.
 - **Updates itself** — the installed app checks GitHub Releases, downloads a new version in the background and asks you to restart. The **Settings** button (gear) in the title bar shows your version and has **Check for updates**, **Update now** and **Install & restart**, plus a switch to turn automatic downloads off (then nothing downloads until you press Update now). The same actions are in the tray menu.
@@ -29,14 +29,14 @@ The best-known use: **run Claude Code with your OpenAI key** (or any other provi
 ## Install
 
 1. Download **`Vibe-Route-Setup-<version>.exe`** from [Releases](https://github.com/jhfarhanyt20-coder/Vibe-Route/releases/latest) and run it (Windows may ask you to confirm because the installer is not code-signed).
-2. Vibe Route starts and opens its dashboard. Later updates arrive by themselves.
+2. BD Route starts and opens its dashboard. Later updates arrive by themselves.
 
 ## Use Claude Code with your OpenAI key (or any provider)
 
-1. Open the Vibe Route dashboard and **add a provider**:
+1. Open the BD Route dashboard and **add a provider**:
    - name: `openai` · base URL: `https://api.openai.com/v1` · API key: your OpenAI key (`sk-…`)
    - press **Test**, then add the models you want (for example `gpt-4.1`, or **Add all models**).
-2. Point Claude Code at Vibe Route (once, in a new terminal or with `set-claude-code-env.bat`):
+2. Point Claude Code at BD Route (once, in a new terminal or with `set-claude-code-env.bat`):
 
    ```bat
    setx ANTHROPIC_BASE_URL   "http://127.0.0.1:8787"
@@ -44,8 +44,8 @@ The best-known use: **run Claude Code with your OpenAI key** (or any other provi
    setx ANTHROPIC_MODEL      "openai/gpt-4.1"
    ```
 
-   `dummy` is fine: Claude Code needs some token, and your real key stays in Vibe Route.
-3. Open a **new** terminal and run `claude`. Its requests go to Vibe Route, which sends them to OpenAI with your key and streams the answers back in Claude's format.
+   `dummy` is fine: Claude Code needs some token, and your real key stays in BD Route.
+3. Open a **new** terminal and run `claude`. Its requests go to BD Route, which sends them to OpenAI with your key and streams the answers back in Claude's format.
 
 Tip: add an alias so Claude Code's own model names land on your model, e.g. `"claude-sonnet-4-5": "openai:gpt-4.1"` under `"aliases"` in `config.json`.
 
@@ -80,7 +80,7 @@ Other options: `timeoutMs`, `firstByteTimeoutMs` / `idleTimeoutMs` (give up when
 - **401 / 403** — the key is wrong or expired. (OpenCode's free-tier models only work inside the OpenCode app.)
 - **Empty model list** — check the provider's base URL and models path; open `<baseUrl>/models` in a browser to test.
 - **Nothing happens** — look at the last lines of `vibe-route.log` in the data folder (tray → Open data folder).
-- **Start with Windows** — Win+R → `shell:startup`, and put a shortcut to Vibe Route there.
+- **Start with Windows** — Win+R → `shell:startup`, and put a shortcut to BD Route there.
 
 ## Security
 

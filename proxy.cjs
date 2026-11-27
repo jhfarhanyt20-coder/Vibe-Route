@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Vibe Route  -  multi provider
+ * BD Route  -  multi provider
  * Anthropic Messages API  ->  OpenAI Chat Completions
  *
  * Any Anthropic-format client (Claude Code, Claude Dev / Cline, ...) can use
@@ -175,7 +175,7 @@ function guardRequest(req, pathname) {
   if (pathname.startsWith("/api/")) {
     const sent = String(req.headers["x-vibe-route-token"] || "");
     const ok = sent.length === DASHBOARD_TOKEN.length && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(DASHBOARD_TOKEN));
-    if (!ok) return "the dashboard API needs the dashboard's token (open the dashboard from the Vibe Route app or http://127.0.0.1:" + PORT + ")";
+    if (!ok) return "the dashboard API needs the dashboard's token (open the dashboard from the BD Route app or http://127.0.0.1:" + PORT + ")";
   }
   return "";
 }
@@ -363,7 +363,7 @@ function opencodeStatus() {
   };
 }
 
-// If OpenCode is installed and logged in but Vibe Route has no provider using
+// If OpenCode is installed and logged in but BD Route has no provider using
 // it yet, add one automatically. The token stays in OpenCode's own DB.
 function ensureOpencodeAutoProvider() {
   // Turned off: do not even read OpenCode's token files.
@@ -2104,7 +2104,7 @@ function renderDashboard(_cats, list) {
        <span class="badge ${dm.tools ? "ok" : ""}">tools ${dm.tools ? "yes" : "no"}</span>`
     : `<span class="badge warn">not found in provider list</span>`;
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Vibe Route</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>BD Route</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><style>
  :root{color-scheme:dark}
  body{background:#0d1117;color:#e6edf3;font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:24px}
@@ -2121,7 +2121,7 @@ function renderDashboard(_cats, list) {
  td.num{text-align:right} td.id{font-family:ui-monospace,Consolas,monospace}
  .muted{color:#8b949e} a{color:#58a6ff} .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#3fb950;margin-right:6px}
 </style></head><body>
-<h1><span class="dot"></span>Vibe Route</h1>
+<h1><span class="dot"></span>BD Route</h1>
 <div class="muted">Anthropic â‡„ OpenAI Â· ${enabledProviders().length} provider(s) Â· ${list.length} models Â· uptime ${Math.round(process.uptime())}s Â· <a href="/?refresh=1">refresh</a></div>
 
 <div class="card">
@@ -2677,7 +2677,7 @@ server.on("error", (e) => {
 
 server.listen(PORT, HOST, () => {
   log("=================================================");
-  log("Vibe Route listening on http://" + HOST + ":" + PORT);
+  log("BD Route listening on http://" + HOST + ":" + PORT);
   for (const id of enabledProviders()) {
     const p = cfg.providers[id];
     log(`provider ${id}: ${p.baseUrl} (key: ${p.keySource})${id === cfg.defaultProvider ? " [default]" : ""}`);
