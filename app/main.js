@@ -3,7 +3,7 @@
 // dashboard in a native window. Closing the window keeps the gateway running
 // in the tray.
 
-const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, ipcMain, clipboard } = require("electron");
+const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, ipcMain, clipboard, Notification } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -218,6 +218,10 @@ function createWindow() {
     if (!quitting) {
       e.preventDefault();
       win.hide();
+      if (!trayHintShown) {
+        trayHintShown = true;
+        quietNote("Vibe Route is still running", "It keeps your gateway on in the tray. Right-click the tray icon and choose Quit to exit.");
+      }
     }
   });
 
@@ -234,6 +238,32 @@ ipcMain.on("win:maximize", () => {
 });
 ipcMain.on("win:close", () => { if (win) win.hide(); });
 ipcMain.handle("win:is-max", () => (win ? win.isMaximized() : false));
+
+// Quiet notes, the same in every VibeCoder app: a silent Windows note (no
+// system sound) with Vibe Route's own soft two-note chime, gone after a few
+// seconds. Used only when the window is not in front and something matters.
+const CHIME_JS = `(() => { try {
+  const C = window.AudioContext || window.webkitAudioContext; if (!C) return 0;
+  const ctx = window.__vrChime || (window.__vrChime = new C()); if (ctx.state === "suspended") ctx.resume();
+  const out = ctx.createGain(); out.gain.value = 0.9; const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2400;
+  lp.connect(out); out.connect(ctx.destination); const t0 = ctx.currentTime + 0.02;
+  for (const [f, at, len] of [[659.25, 0, 0.42], [987.77, 0.11, 0.55]]) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t0 + at); g.gain.exponentialRampToValueAtTime(0.07, t0 + at + 0.018); g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
+    o.connect(g); g.connect(lp); o.start(t0 + at); o.stop(t0 + at + len + 0.05);
+  } return 1 } catch { return 0 } })()`;
+function quietNote(title, body, onClick) {
+  try {
+    if (!Notification.isSupported()) return false;
+    const n = new Notification({ title, body: String(body || "").slice(0, 240), silent: true, timeoutType: "default", icon: ICON });
+    const hide = setTimeout(() => { try { n.close(); } catch {} }, 3000);
+    n.on("click", () => { clearTimeout(hide); try { (onClick || showWindow)(); } catch {} });
+    n.show();
+    if (win && !win.isDestroyed()) win.webContents.executeJavaScript(CHIME_JS).catch(() => {});
+    return true;
+  } catch { return false; }
+}
+let trayHintShown = false;
 
 function showWindow() {
   if (!win) createWindow();
@@ -295,6 +325,10 @@ function setupUpdater() {
     userAskedDownload = false;
     setUpdateState({ status: "ready", version: info && info.version });
     if (asked && win && win.isVisible()) return; // the dashboard already shows Install & restart
+    // In the background: a quiet note instead of a pop-up that steals focus.
+    if (!win || !win.isVisible() || win.isMinimized()) {
+      if (quietNote("Vibe Route update ready", `Version ${updateState.version || ""} is downloaded. Click to open Vibe Route and restart to install.`)) return;
+    }
     const { response } = await dialog.showMessageBox({
       type: "info",
       title: "Vibe Route update",
