@@ -356,7 +356,7 @@ function setupUpdater() {
 // manual: show a dialog with the result (tray). quiet: the dashboard shows it itself.
 async function checkForUpdates(manual, quiet) {
   if (!updater) {
-    if (manual && !quiet) dialog.showMessageBox({ type: "info", title: "BD Route", message: app.isPackaged ? "Updates are not available in this copy." : "Updates work in the installed app.", detail: "Download the latest version from github.com/jhfarhanyt20-coder/Vibe-Route/releases." });
+    if (manual && !quiet) dialog.showMessageBox({ type: "info", title: "BD Route", message: app.isPackaged ? "Updates are not available in this copy." : "Updates work in the installed app.", detail: "Download the latest version from github.com/jhfarhanyt20-coder/BD-Route/releases." });
     return publicUpdateState();
   }
   if (["checking", "downloading", "ready"].includes(updateState.status)) return publicUpdateState();

@@ -4,7 +4,7 @@
 
 The best-known use: **run Claude Code with your OpenAI key** (or any other provider). Claude Code only speaks the Anthropic format; BD Route translates it to the OpenAI format on the fly — streaming, tool calls (read / edit / bash) and all.
 
-**[⬇ Download the latest installer](https://github.com/jhfarhanyt20-coder/Vibe-Route/releases/latest)** · Windows 10 / 11 (64-bit) · free · updates itself
+**[⬇ Download the latest installer](https://github.com/jhfarhanyt20-coder/BD-Route/releases/latest)** · Windows 10 / 11 (64-bit) · free · updates itself
 
 ---
 
@@ -28,7 +28,7 @@ The best-known use: **run Claude Code with your OpenAI key** (or any other provi
 
 ## Install
 
-1. Download **`Vibe-Route-Setup-<version>.exe`** from [Releases](https://github.com/jhfarhanyt20-coder/Vibe-Route/releases/latest) and run it (Windows may ask you to confirm because the installer is not code-signed).
+1. Download **`Vibe-Route-Setup-<version>.exe`** from [Releases](https://github.com/jhfarhanyt20-coder/BD-Route/releases/latest) and run it (Windows may ask you to confirm because the installer is not code-signed).
 2. BD Route starts and opens its dashboard. Later updates arrive by themselves.
 
 ## Use Claude Code with your OpenAI key (or any provider)
